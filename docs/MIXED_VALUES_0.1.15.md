@@ -1,0 +1,15 @@
+# Valores anteriores e edição de toda a seleção — FX Exchanger 0.1.15
+
+O editor agregava somente properties estáticas: com Radius 200 estático e Radius 100 com keys, mostrava 200 e oferecia aplicar em 1/2 dos efeitos. O snapshot atual da propriedade com keys não era capturado para revisão. Uma única key também era apresentada genericamente como animação.
+
+A interface conserva uma linha por parâmetro. Mixed Values indica valores diferentes; Previous values lista os valores e suas contagens de efeitos, por exemplo `200 (1); 100 (1)`. View targets mostra a correspondência composição/layer/efeito/valor/status. Pendências e confirmação exibem `200 (1); 100 (1) -> 150`. Assim, grupos grandes continuam navegáveis sem duplicar os campos de entrada. O campo de valores anteriores é rolável e copiável; Unavailable mantém explícitas as ocorrências não legíveis.
+
+Cada pendência do editor deve alcançar todos os efeitos selecionados. Faltando autorização de remoção, a coluna mostra Blocked e Apply fica desabilitado com orientação. Expressions, locks, parâmetros ausentes e tipos/menus incompatíveis bloqueiam o lote. A confirmação do editor não oferece consentimento para aplicar apenas a parcela compatível. O consentimento final para apagar keyframes permanece, pois autoriza uma mudança diferente da atribuição de um número.
+
+Remove keyframes funciona com uma única key ou várias, por parâmetro. Novo valor substitui todos os valores selecionados. Campo vazio / Keep original values limpa keys e preserva o valor atual de cada ocorrência; não usa o valor do primeiro efeito para os demais. Clear this change descarta essa proposta. Nenhuma key de outro parâmetro é removida.
+
+A captura guarda currentValue opcional e validado somente para tipos numéricos suportados, sem expressions e sem ler detalhes das keys. Esse snapshot não entra em properties comparáveis, cópia ou presets. Batch resolve keepCurrent em linhas por alvo, preserva as autorizações por path e revalida snapshots de limpeza. Com requireAll, todos os alvos são conferidos antes da primeira mutação, incluindo tipo, menu, limites, locks, expressions e possibilidade de remover keys. A verificação de remoção e o readback continuam no adapter. Falhas posteriores do host ainda podem deixar mudanças parciais; Results registra a incerteza, sem retry nem rollback automático.
+
+Validação: 247 testes Node/mocks aprovados, incluindo dez casos novos para os valores mistos, contagens, cenários da captura, uma key de menu, limpeza com valores diferentes, consentimento/cancelamento, proteção de toda a seleção, limites e snapshots ausentes/alterados. Build ES3 e pacote ZIP verificados; nenhuma instalação nem escrita no projeto do usuário. A inspeção visual e funcional no After Effects permanece pendente no [checklist nativo](UI_QA.md).
+
+O build público também inclui [consulta de atualizações](UPDATE_CHECK_0.1.15.md), com seis testes adicionais: total de 253. Pacote: release/FX-Exchanger-0.1.15.zip. Logs de teste são gerados localmente em artifacts/.

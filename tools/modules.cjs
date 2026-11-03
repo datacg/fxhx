@@ -1,0 +1,22 @@
+module.exports = [
+    'utils/util.js',
+    'core/json.js',
+    'core/model.js',
+    'core/validate.js',
+    'configurations/engine.js',
+    'configurations/animation.js',
+    'configurations/parameters.js',
+    'filters/filters.js',
+    'grouping/grouping.js',
+    'diagnostics/report.js',
+    'updates/updates.js',
+    'storage/store.js',
+    'storage/presets.js',
+    'ae/adapter.js',
+    'scanner/scanner.js',
+    'batch/batch.js',
+    'ui/presentation.js',
+    'ui/results.js',
+    'ui/editor.js',
+    'ui/panel.js'
+];

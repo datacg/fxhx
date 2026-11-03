@@ -1,0 +1,14 @@
+node_modules/
+artifacts/
+release/
+*.log
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.tmp
+*.bak
+.DS_Store
+Thumbs.db

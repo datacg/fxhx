@@ -1,0 +1,27 @@
+{
+  "name": "fx-exchanger",
+  "version": "0.1.15",
+  "private": true,
+  "description": "Find, compare and modify After Effects configurations in precise batches",
+  "scripts": {
+    "build": "node tools/build.cjs",
+    "test": "node --test tests/*.test.cjs",
+    "check": "npm run build && npm test",
+    "host:prepare": "node tools/prepare-ae-smoke.cjs",
+    "release": "npm run check && node tools/release.cjs && node tools/verify-release.cjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "acorn": "8.19.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/datacg/fxhx.git"
+  },
+  "bugs": {
+    "url": "https://github.com/datacg/fxhx/issues"
+  },
+  "homepage": "https://github.com/datacg/fxhx#readme"
+}
