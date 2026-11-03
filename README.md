@@ -1,8 +1,12 @@
-# FX Exchanger
+![FXHX — A game changer for After Effects.](assets/fxhx-cover.png)
+
+# FXHX
+
+**A game changer for After Effects.**
 
 Encontre, compare e altere parâmetros de efeitos em lote no Adobe After Effects.
 
-**fxhx** é um painel ExtendScript/ScriptUI para Windows. Você seleciona os efeitos que quer editar, confere os valores atuais e prepara várias alterações para aplicar em um único lote.
+**FXHX (FX Exchanger)** é um painel ExtendScript/ScriptUI para Windows. Você seleciona os efeitos que quer editar, confere os valores atuais e prepara várias alterações para aplicar em um único lote.
 
 ## Download e instalação
 
