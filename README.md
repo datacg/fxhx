@@ -41,6 +41,12 @@ Esta é a primeira versão pública, **0.1.15**. São **253 testes automatizados
 
 Falhas da API do host podem deixar alterações parciais. Confira **Results** antes de repetir uma operação; o painel não repete escritas incertas automaticamente. A compatibilidade com controles privados de plugins de terceiros depende do que cada efeito expõe.
 
+## Apoie o desenvolvimento
+
+O FXHX é gratuito. Se ele facilitou seu trabalho, você pode contribuir voluntariamente para apoiar seu desenvolvimento e outros projetos da DATACG.
+
+**[Apoiar DATACG no Ko-fi](https://ko-fi.com/datacg)**
+
 ## Desenvolvimento
 
 Requer Node.js 18 ou superior. No Windows:
