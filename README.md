@@ -4,52 +4,52 @@
 
 **A game changer for After Effects.**
 
-Encontre, compare e altere parâmetros de efeitos em lote no Adobe After Effects.
+Find, compare, and batch-edit effect parameters in Adobe After Effects.
 
-**FXHX (FX Exchanger)** é um painel ExtendScript/ScriptUI para Windows. Você seleciona os efeitos que quer editar, confere os valores atuais e prepara várias alterações para aplicar em um único lote.
+**FXHX (FX Exchanger)** is an ExtendScript/ScriptUI panel for Windows. Select the effect instances you want to edit, review their current values, and prepare several changes to apply in one batch.
 
-## Download e instalação
+## Download and installation
 
-Baixe o [ZIP da versão mais recente](https://github.com/datacg/fxhx/releases/latest) e extraia `FX Exchanger.jsx`. Também é possível baixar apenas o JSX na mesma página.
+Download the [latest release](https://github.com/datacg/fxhx/releases/latest) and extract `FX Exchanger.jsx` from the ZIP. You can also download the JSX file separately from the same page. GitHub names the standalone download `FX.Exchanger.jsx`; rename it to `FX Exchanger.jsx` before installing it.
 
-1. Feche o painel, se já estiver aberto.
-2. Copie `FX Exchanger.jsx` para a pasta `Scripts/ScriptUI Panels` da instalação do After Effects.
-3. Abra **Window → FX Exchanger.jsx**. Confira a versão em **Help**.
+1. Close the panel if it is already open.
+2. Copy `FX Exchanger.jsx` to the `Scripts/ScriptUI Panels` folder in your After Effects installation.
+3. Open **Window → FX Exchanger.jsx**. Check the installed version in **Help**.
 
-O painel não precisa de Node.js ou npm para funcionar. [Instruções de instalação](INSTALL.md).
+You do not need Node.js or npm to use the panel. See the [installation instructions](INSTALL.md).
 
-## Como usar
+## How to use it
 
-1. Escolha o escopo e use **Search** ou **Scan** para localizar os efeitos.
-2. Selecione as ocorrências. **Ctrl** alterna a seleção; **Shift** seleciona um intervalo.
-3. Clique **Edit Parameters...**. Busque os parâmetros e preencha somente os valores que quer alterar.
-4. Confira os valores anteriores, as pendências e os alvos. **Apply** confirma e aplica o lote.
+1. Choose a scope and use **Search** or **Scan** to find effects.
+2. Select the instances you want to edit. **Ctrl** toggles individual selections; **Shift** selects a range.
+3. Click **Edit Parameters...**. Search for parameters and enter only the values you want to change.
+4. Review the previous values, pending changes, and targets. Click **Apply** to confirm and apply the batch.
 
-Quando os valores forem diferentes, o editor mostra **Mixed Values** e os valores anteriores com suas contagens. Por exemplo: **200 (1 efeito) + 100 (1 efeito) → 150 para ambos**. Cada pendência precisa atender toda a seleção; se houver um impedimento, Apply fica bloqueado e explica o motivo.
+When values differ, the editor displays **Mixed Values** and lists each previous value with its effect count. For example: **200 (1 effect) + 100 (1 effect) → 150 for both**. Every pending change must cover all selected effects. If a known issue prevents that, Apply is disabled and the editor explains why.
 
-Também é possível comparar configurações, copiar parâmetros estáticos escolhidos, salvar presets de um efeito e ativar/desativar efeitos selecionados. [Guia de uso](USER_GUIDE.md).
+You can also compare settings, copy selected static parameters, save presets for an individual effect, and enable or disable selected effects. See the [user guide](USER_GUIDE.md).
 
-## Keyframes e atualizações
+## Keyframes and updates
 
-Keyframes são preservados por padrão. Para removê-los de um parâmetro, marque **Remove keyframes** e confirme a remoção. Isso também funciona com uma única key: deixe o novo valor vazio para manter o valor atual de cada efeito, ou informe um valor para substituir todos. Expressions e controles não suportados permanecem protegidos.
+Keyframes are preserved by default. To remove them from a parameter, select **Remove keyframes** and confirm the removal. This also works with a single keyframe: leave the new value blank to keep each effect's current value, or enter a value to replace all selected values. Expressions and unsupported controls remain protected.
 
-Em **Help → Check for updates**, o painel consulta a última Release estável deste repositório. **Open Releases** abre a página de download. A consulta é manual, não envia dados do projeto e não instala atualizações automaticamente.
+Under **Help → Check for updates**, the panel checks this repository's latest stable release. **Open Releases** opens the download page. Update checks are manual, do not send project data, and do not install updates automatically.
 
-## Estado da versão
+## Release status
 
-Esta é a primeira versão pública, **0.1.15**. São **253 testes automatizados aprovados**, com build ES3 e verificação do pacote. A validação visual e funcional dentro do After Effects ainda está pendente; veja [VALIDATION.md](VALIDATION.md) e o [roteiro de testes manuais](docs/UI_QA.md).
+This is the first public release, **0.1.15**. It has **253 passing automated tests**, ES3 build validation, and package verification. Visual and functional validation inside After Effects is still pending. See [VALIDATION.md](VALIDATION.md) and the [manual testing checklist](docs/UI_QA.md).
 
-Falhas da API do host podem deixar alterações parciais. Confira **Results** antes de repetir uma operação; o painel não repete escritas incertas automaticamente. A compatibilidade com controles privados de plugins de terceiros depende do que cada efeito expõe.
+Host API failures can leave partial changes. Review **Results** before repeating an operation; the panel does not automatically retry uncertain writes. Compatibility with private third-party plugin controls depends on what each effect exposes.
 
-## Apoie o desenvolvimento
+## Support development
 
-O FXHX é gratuito. Se ele facilitou seu trabalho, você pode contribuir voluntariamente para apoiar seu desenvolvimento e outros projetos da DATACG.
+FXHX is free to use. If it makes your work easier, you can make a voluntary contribution to support its development and other free DATACG projects.
 
-**[Apoiar DATACG no Ko-fi](https://ko-fi.com/datacg)**
+**[Support DATACG on Ko-fi](https://ko-fi.com/datacg)**
 
-## Desenvolvimento
+## Development
 
-Requer Node.js 18 ou superior. No Windows:
+Requires Node.js 18 or later. On Windows:
 
 ```powershell
 npm.cmd ci
@@ -57,6 +57,6 @@ npm.cmd run check
 npm.cmd run release
 ```
 
-O código fica em `src/`; o build gera `dist/FX Exchanger.jsx`. O pacote é criado em `release/`. Esses comandos não iniciam o After Effects. [Testes](TESTING.md) · [Arquitetura](ARCHITECTURE.md) · [Changelog](CHANGELOG.md).
+Source files are in `src/`; the build generates `dist/FX Exchanger.jsx`. Distribution packages are created in `release/`. These commands do not launch After Effects. [Testing](TESTING.md) · [Architecture](ARCHITECTURE.md) · [Changelog](CHANGELOG.md).
 
-Encontrou um problema? [Abra uma issue](https://github.com/datacg/fxhx/issues) com a versão do painel, versão do After Effects e passos para reproduzir. Remova dados pessoais ou do projeto antes de compartilhar logs.
+Found a problem? [Open an issue](https://github.com/datacg/fxhx/issues) with the panel version, After Effects version, and steps to reproduce it. Remove personal or project data before sharing logs.
