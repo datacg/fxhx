@@ -121,6 +121,43 @@ FX.U = (function () {
         }
         return ('00000000' + (h >>> 0).toString(16)).slice(-8);
     }
+    // Accepts what people type in AE fields: "20", "-0.5", "20,5", " .5 ".
+    // Rejects hex, exponents, thousands separators and empty text so a typo
+    // never becomes a silent 0 or NaN.
+    function parseNumber(text, label) {
+        var s = trim(String(text === undefined || text === null ? '' : text)),
+            prefix = label ? label + ': ' : '',
+            n;
+        if (/^[+-]?\d*,\d+$/.test(s)) {
+            s = s.replace(',', '.');
+        }
+        assert(/^[+-]?(\d+\.?\d*|\.\d+)$/.test(s),
+            prefix + 'enter a number such as 20 or 20.5');
+        n = Number(s);
+        assert(isFinite(n), prefix + 'number is too large');
+        return n;
+    }
+    // Hosts may store values at reduced precision (for example float32 colors),
+    // so a requested 0.2 can read back as 0.20000000298. Compare with a small
+    // relative tolerance; structural differences still fail.
+    function sameValue(a, b, tolerance) {
+        var i, t = typeof tolerance === 'number' ? tolerance : 1e-5;
+        if (array(a) || array(b)) {
+            if (!array(a) || !array(b) || a.length !== b.length) {
+                return false;
+            }
+            for (i = 0; i < a.length; i++) {
+                if (!sameValue(a[i], b[i], t)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        if (typeof a !== 'number' || typeof b !== 'number' || !isFinite(a) || !isFinite(b)) {
+            return a === b;
+        }
+        return Math.abs(a - b) <= t * Math.max(1, Math.abs(a), Math.abs(b));
+    }
     return {
         measure: function (diagnostics, name, started, items) {
             try {
@@ -139,6 +176,8 @@ FX.U = (function () {
         clone: clone,
         assert: assert,
         move: move,
-        hash: hash
+        hash: hash,
+        parseNumber: parseNumber,
+        sameValue: sameValue
     };
 })();

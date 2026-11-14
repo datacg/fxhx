@@ -7,7 +7,7 @@ function analyzed(h, p) {
     h.click(p, 'Select Results');
     h.read(p);
     h.drain(p);
-    const mode = h.all(p, 'dropdownlist')[1];
+    const mode = h.grouping(p);
     mode.selection = 7;
     mode.onChange();
     h.click(p, 'Clear Selection');
@@ -35,10 +35,10 @@ function copyHooks(h) {
 test('View keeps configuration Groups central, Layer last, and never opens dialogs on change', () => {
     const h = ui({ selectionNotifications: 'always' }),
         p = h.start();
-    const view = h.all(p, 'dropdownlist')[2];
+    const view = h.all(p, 'dropdownlist')[1];
     assert.deepEqual(
         view.items.map((x) => x.text),
-        ['Effects', 'Groups', 'Layer']
+        ['Effects', 'Groups', 'Layers']
     );
     for (const index of [1, 2, 0, 1]) {
         view.selection = index;
@@ -142,7 +142,7 @@ test('decorative names use technical identities in results without changing orig
         p.fxController.scanner.basic.instances[0].effectName,
         '_____________'
     );
-    const mode = h.all(p, 'dropdownlist')[1];
+    const mode = h.grouping(p);
     mode.selection = 7;
     mode.onChange();
     assert.match(tree.items[0].text, /ADBE Glo2/);
@@ -174,7 +174,7 @@ test('copy/paste parameters uses a frozen source and only the manually selected 
     assert.equal(h.alerts.length, 0);
 });
 
-test('auto Refresh preserves Results and rereads only the safe selection after Apply', () => {
+test('after Apply the effect list is reused and only the edited effect is reread', () => {
     const h = ui(),
         c = h.glow(),
         p = h.start();
@@ -198,7 +198,8 @@ test('auto Refresh preserves Results and rereads only the safe selection after A
         return capture.call(this, effect, ...args);
     };
     h.drain(p);
-    assert.notEqual(p.fxController.scanner.basic, old);
+    // Value edits keep the same effect list (no relisting of the scope).
+    assert.equal(p.fxController.scanner.basic, old);
     assert.equal(p.fxController.scanner.basic.stale, false);
     assert.equal(report.verified, 1);
     assert.equal(c.layers[17].parade.property(1).property(1).value, 11);
@@ -533,6 +534,8 @@ test('automatic Refresh failure keeps the successful report and never retries it
     h.scan(p);
     h.pick(p, h.results(p).items[0]);
     let starts = 0;
+    // Force the full relisting path (as after Remove or a changed stack).
+    p.fxController.scanner.reuseAfterWrite = () => false;
     h.adapter.scanCursor = () => {
         starts++;
         throw Error('Scope unavailable during auto Refresh');

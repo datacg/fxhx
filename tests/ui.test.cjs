@@ -149,7 +149,7 @@ test('editor blocks partial writes and preserves every selected effect until key
         const f = h.parameterFields(d)[0];
         f.text = '100';
         f.onChanging();
-        assert.equal(h.all(d, 'button').find(b => b.text === 'Apply').enabled, false);
+        assert.equal(h.all(d, 'button').find(b => b.fxTitle === 'Apply').enabled, false);
         h.click(d, 'Cancel');
     };
     h.click(p, 'Edit Parameters...');
@@ -215,7 +215,7 @@ test('empty layers offer explicit Apply Effect directly from More', () => {
         h.all(d, 'listbox')[0].selection = 1;
         h.click(d, 'Choose');
     };
-    h.more(p, 'Apply Effect...');
+    h.click(p, 'Add Effect...');
     assert.equal(
         c.layers[0].parade.property(1).matchName,
         'ADBE Slider Control'
@@ -456,7 +456,7 @@ test('offline Help and selected parameter grouping preserve existing capabilitie
         nodes(h.results(p)).filter((x) => x.fxGroup).length,
         3
     );
-    h.dialogHooks['FX Exchanger Help'] = (d) => {
+    h.dialogHooks['FXHX Help'] = (d) => {
         assert.equal(h.all(d, 'edittext')[0].props.scrolling, true);
     };
     h.click(p, 'Help');
@@ -471,7 +471,7 @@ test('default effect results omit redundant layer lists; Layers explicitly retai
     let tree = h.results(p);
     assert.ok(!tree.items.some((x) => x.text.startsWith('Layers')));
     assert.match(tree.items[0].text, /18 effects/);
-    const grouping = h.all(p, 'dropdownlist')[1];
+    const grouping = h.grouping(p);
     grouping.selection = 6;
     grouping.onChange();
     assert.match(tree.items[0].text, /Layers - 19/);
@@ -513,7 +513,7 @@ test('empty installed inventory reports no effects before constructing an empty 
     h.scan(p);
     h.pick(p, h.results(p).items[0]);
     h.adapter.inventory = () => [];
-    h.more(p, 'Apply Effect...');
+    h.click(p, 'Add Effect...');
     assert.match(p.fxController.diagnostics.text(), /No effects are available/);
     assert.ok(!h.windows.some((w) => w.text === 'Choose effect to apply'));
 });
@@ -539,7 +539,7 @@ test('analyzed copy reference is reused and chooser closes before the parameter 
         h.all(d, 'listbox')[0].items[0].selected = true;
         h.click(d, 'Use selected');
     };
-    h.more(p, 'Copy Settings From...');
+    h.more(p, 'Copy From Another Effect...');
     assert.equal(h.alerts.length, 0);
     assert.equal(h.calls.filter((x) => x[0] === 'set').length, 0);
 });
@@ -560,7 +560,7 @@ test('animated-only effects expose the editor with fixed-value conversion disabl
         assert.ok(h.all(d, 'checkbox')[0].enabled);
         assert.equal(h.all(d, 'checkbox')[0].value, false);
         assert.ok(h.parameterFields(d).every(f => !f.enabled));
-        assert.equal(h.all(d, 'button').find(b => b.text === 'Apply').enabled, false);
+        assert.equal(h.all(d, 'button').find(b => b.fxTitle === 'Apply').enabled, false);
         h.click(d, 'Cancel');
     };
     h.click(p, 'Edit Parameters...');
@@ -572,9 +572,12 @@ test('dialogs declare native keyboard default/cancel buttons and help exposes di
     const p = h.start();
     h.analyzed(p);
     h.pick(p, h.results(p).items[0]);
+    let editorOpened = false;
     h.dialogHooks['Edit Parameters'] = (d) => {
-        assert.equal(
-            h.all(d, 'button').find((x) => x.text === 'Apply').props.name,
+        editorOpened = true;
+        // Enter in a value field must never submit the batch.
+        assert.notEqual(
+            h.all(d, 'button').find((x) => x.fxTitle === 'Apply').props.name,
             'ok'
         );
         assert.equal(
@@ -584,10 +587,12 @@ test('dialogs declare native keyboard default/cancel buttons and help exposes di
         h.click(d, 'Cancel');
     };
     h.click(p, 'Edit Parameters...');
+    h.drain(p);
+    assert.ok(editorOpened, 'the editor hook actually ran');
     h.more(p, 'Clear Selection');
-    h.dialogHooks['FX Exchanger Help'] = (d) => h.click(d, 'Diagnostics...');
+    h.dialogHooks['FXHX Help'] = (d) => h.click(d, 'Diagnostics...');
     h.click(p, 'Help');
-    assert.ok(h.windows.some((w) => w.text === 'FX Exchanger diagnostics'));
+    assert.ok(h.windows.some((w) => w.text === 'FXHX diagnostics'));
     assert.equal(h.alerts.length, 0);
 });
 test('scope change during scan cancels work and cancelled analysis keeps inventory reusable', () => {
@@ -669,7 +674,7 @@ test('Refresh never rebinds removed effects to new indices and preserves only id
     const p = h.start();
     h.scan(p);
     h.pick(p, h.results(p).items[0]);
-    h.more(p, 'Remove');
+    h.more(p, 'Remove Effects');
     h.drain(p);
     assert.equal(p.fxController.selected().instances.length, 0);
     assert.equal(p.fxController.selected().layers.length, 1);

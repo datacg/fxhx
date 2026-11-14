@@ -4,7 +4,7 @@ FX.UI = (function () {
         var isPanel = typeof Panel !== 'undefined' && host instanceof Panel;
         var w = isPanel
             ? host
-            : new Window('palette', 'FX Exchanger ' + FX.Updates.installed, undefined, {
+            : new Window('palette', 'FXHX ' + FX.Updates.installed, undefined, {
                   resizeable: true
               });
         if (w.fxController) {
@@ -40,6 +40,9 @@ FX.UI = (function () {
             scanner = new FX.Scanner(adapter),
             batch = new FX.Batch(adapter, scanner);
         diagnostics = adapter.diagnostics;
+        var activity = new FX.Activity(function (from, to) {
+            diagnostics.add('activity', '', 'unexpected transition ' + from + ' -> ' + to);
+        });
         var store = null,
             state = FX.Model.state(),
             filters = {},
@@ -49,7 +52,6 @@ FX.UI = (function () {
             selectedLayers = {},
             view = { layers: [], instances: [] },
             groups = [],
-            busy = false,
             lastReport = null,
             sourceRows = null,
             disposed = false,
@@ -124,86 +126,7 @@ FX.UI = (function () {
             return fallback;
         }
         function layoutRow(control, width, height) {
-            var items = [],
-                i,
-                c,
-                flex = -1,
-                x = 0,
-                widths = [],
-                weights = [],
-                fixed = 0,
-                gap = 4;
-            for (i = 0; i < control.children.length; i++) {
-                c = control.children[i];
-                if (c.visible !== false) {
-                    items.push(c);
-                }
-            }
-            if (!items.length) {
-                return;
-            }
-            if (height > 28 && items.length > 2) {
-                var split = 2,
-                    start = 0,
-                    line,
-                    end,
-                    j;
-                if (items.length === 3) {
-                    split = 1;
-                }
-                for (line = 0; line < 2; line++) {
-                    end = items.length;
-                    if (line === 0) {
-                        end = split;
-                    }
-                    widths = FX.Presentation.rowWidths(
-                        width,
-                        line === 0 && split === 1 ? [1] : [1, 1],
-                        gap
-                    );
-                    x = 0;
-                    for (j = start; j < end; j++) {
-                        items[j].bounds = [
-                            x,
-                            line * 32,
-                            x + widths[j - start],
-                            line * 32 + 28
-                        ];
-                        x += widths[j - start] + gap;
-                    }
-                    start = split;
-                }
-                return;
-            }
-            for (i = 0; i < items.length; i++) {
-                c = items[i];
-                if (c.type === 'dropdownlist' || c.type === 'edittext') {
-                    flex = i;
-                }
-                weights.push(1);
-            }
-            if (control === actionRow) {
-                weights[0] = 2;
-            }
-            if (flex >= 0) {
-                for (i = 0; i < items.length; i++) {
-                    if (i === flex) {
-                        continue;
-                    }
-                    widths[i] = items[i].type === 'statictext' ? 38 : 64;
-                    fixed += widths[i];
-                }
-                widths[flex] = Math.max(
-                    20,
-                    width - fixed - gap * (items.length - 1)
-                );
-            } else {
-                widths = FX.Presentation.rowWidths(width, weights, gap);
-            }
-            for (i = 0; i < items.length; i++) {
-                items[i].bounds = [x, 0, x + widths[i], 28];
-                x += widths[i] + gap;
-            }
+            FX.Layout.row(control, width, height, control === actionRow);
         }
         function layoutViewport(width, height) {
             if (!layoutReady || layoutBusy || disposed) {
@@ -227,7 +150,7 @@ FX.UI = (function () {
                     y = 6,
                     fy = 0,
                     i,
-                    fields = [sr, searchRow, gr, scanRow];
+                    fields = [sr, searchRow, gr];
                 viewportState = state;
                 scrollOffset = Math.max(
                     0,
@@ -251,7 +174,8 @@ FX.UI = (function () {
                     layoutRow(fields[i], inner, 28);
                     fy += 32;
                 }
-                status.bounds = [0, fy, inner, fy + 38];
+                status.bounds = [0, fy, inner, fy + 28];
+                progress.bounds = [0, fy + 30, inner, fy + 38];
                 fy += 42;
                 tree.control.bounds = [0, fy, inner, fy + state.treeHeight];
                 find.bounds = [6, y, 6 + inner, y + fy + state.treeHeight];
@@ -382,13 +306,15 @@ FX.UI = (function () {
             if (title === 'Cancel' || title === 'Close') {
                 properties.name = 'cancel';
             }
-            if (title === 'Apply') {
-                properties.name = 'ok';
-            }
-            var b = parent.add('button', undefined, title, properties);
+            // Apply is deliberately never the default button: Enter typed in a
+            // value field must not submit or confirm a batch.
+            var label = FX.I18N.t(title),
+                b = parent.add('button', undefined, label, properties);
+            // fxTitle is the stable English key; text is what people see.
+            b.fxTitle = title;
             b.preferredSize.width = Math.max(
                 43,
-                Math.min(175, title.length * 6 + 16)
+                Math.min(175, label.length * 6 + 16)
             );
             b.onClick = guard(fn, title);
             return b;
@@ -457,7 +383,12 @@ FX.UI = (function () {
             }
         }
         function dropdown(parent, items) {
-            var d = parent.add('dropdownlist', undefined, items);
+            var d = parent.add('dropdownlist', undefined, FX.I18N.list(items)),
+                k;
+            // Logic compares fxKey (English), never the translated text.
+            for (k = 0; k < items.length && k < d.items.length; k++) {
+                d.items[k].fxKey = items[k];
+            }
             d.alignment = ['fill', 'center'];
             d.preferredSize.width = 160;
             d.selection = 0;
@@ -474,9 +405,7 @@ FX.UI = (function () {
             } catch (ignoredDiagnostic) {}
             try {
                 if (!scanner.job && !batch.executing) {
-                    busy = false;
-                    scanButton.enabled = true;
-                    cancelButton.enabled = false;
+                    setIdle();
                 }
                 if (scanner.basic && scanner.basic.stale) {
                     updateActions();
@@ -514,7 +443,7 @@ FX.UI = (function () {
                 }
             }
         }
-        header.add('statictext', undefined, 'FX Exchanger');
+        header.add('statictext', undefined, 'FXHX');
         var headerSpace = header.add('group');
         headerSpace.alignment = ['fill', 'center'];
         headerSpace.minimumSize = [0, 0];
@@ -529,7 +458,7 @@ FX.UI = (function () {
         find.spacing = 4;
         find.margins = 0;
         var sr = row(find);
-        sr.add('statictext', undefined, 'Scope');
+        sr.add('statictext', undefined, FX.I18N.t('Scope'));
         var scope = dropdown(sr, [
             'Active Composition',
             'Choose Compositions',
@@ -548,7 +477,7 @@ FX.UI = (function () {
             ];
         var choose = button(sr, 'Choose...', function () {
             var comps = adapter.compositions(),
-                d = new Window('dialog', 'Choose compositions');
+                d = new Window('dialog', FX.I18N.t('Choose compositions'));
             d.orientation = 'column';
             d.alignChildren = 'fill';
             var query = d.add('edittext', undefined, ''),
@@ -644,11 +573,12 @@ FX.UI = (function () {
                 invalidateScope();
             }
         });
+        button(sr, 'Filters...', filterDialog);
         var searchRow = row(find);
-        searchRow.add('statictext', undefined, 'Find');
+        searchRow.add('statictext', undefined, FX.I18N.t('Find'));
         var search = searchRow.add('edittext', undefined, '');
         search.helpTip =
-            'Search or Enter inventories the scope if needed, then filters in memory. Initial parameter reads are explicit; successful parameter edits update the same selection automatically.';
+            'Type an effect, layer or composition name and press Enter. The first search lists the effects in the scope; later searches filter that list instantly.';
         search.characters = 10;
         search.alignment = ['fill', 'center'];
         search.minimumSize.width = 50;
@@ -658,32 +588,24 @@ FX.UI = (function () {
             applySearch();
         });
         var gr = row(find);
-        gr.add('statictext', undefined, 'View');
-        var groupBy = dropdown(gr, [
-            'Configuration groups (advanced)',
-            'Effect groups',
-            'Effect and layer type groups',
-            'Full configuration groups',
-            'Selected parameter groups',
-            'Composition and configuration groups',
-            'Layers (including without effects)',
-            'Effects (individual instances)'
-        ]);
-        groupBy.visible = false;
-        groupBy.maximumSize = [0, 0];
-        var mainView = dropdown(gr, ['Effects', 'Groups', 'Layer']);
+        gr.add('statictext', undefined, FX.I18N.t('View'));
+        // Grouping mode is data, not a control. Indices follow `modes`:
+        // 0 type-config, 1 effect, 2 type, 3 config, 4 selected,
+        // 5 composition, 6 layers, 7 occurrences. View shows the three
+        // user-facing choices; More > Grouping... picks the group criteria.
+        var groupBy = { selection: { index: 7 }, onChange: null };
+        function setGroupIndex(index) {
+            groupBy.selection = { index: index };
+        }
+        var mainView = dropdown(gr, ['Effects', 'Groups', 'Layers']);
         mainView.helpTip =
-            'Groups compares configurations after Read Parameters. Layer includes empty layers. Configure grouping in More > Grouping...';
-        var parameterGroup = button(gr, 'Parameters...', function () {
-            chooseGrouping();
-        });
+            'Effects lists each effect. Groups compares effects after their parameters are read. Layers includes layers without effects. Group criteria: More > Grouping...';
         var presetsButton = button(gr, 'Presets...', presetDialog);
-        var scanRow = row(find);
-        button(scanRow, 'Filters...', filterDialog);
-        var scanButton = button(scanRow, 'Scan', function () {
+        // Refresh and Cancel share one slot: Cancel replaces Refresh while work runs.
+        var scanButton = button(gr, 'Scan', function () {
                 runScan(scanner.basic && scanner.basic.stale);
             }),
-            cancelButton = button(scanRow, 'Cancel', function () {
+            cancelButton = button(gr, 'Cancel', function () {
                 cancelEditorContinuation();
                 var updatingAfterEdit = !!pendingParameterRefresh ||
                     !!(pendingRestore && pendingRestore.readParameters);
@@ -691,31 +613,67 @@ FX.UI = (function () {
                 pendingParameterRefresh = null;
                 pendingRestore = null;
                 scanner.cancel();
-                busy = false;
-                scanButton.enabled = true;
-                cancelButton.enabled = false;
+                setIdle();
                 render();
                 updateActions();
                 status.text =
-                    'Cancelled - inventory preserved when available. Select effects to analyze.';
+                    'Cancelled. The previous list is kept when available.';
                 if (updatingAfterEdit) {
                     status.text = 'Changes were applied. Updating was cancelled; review Results and refresh/read parameters to continue.';
                 }
             });
         scanButton.helpTip =
-            'Basic Scan only: existing effect identities, no property values.';
-        groupBy.helpTip =
-            'Effects lists individual instances. Layers includes empty layers. Other options are optional groups; changing View never reads parameters.';
+            'Update the effect list for the chosen scope. Parameter values are not read.';
         cancelButton.helpTip =
-            'Cancel queued work without publishing partial configurations.';
+            'Stop the current update. Nothing partial is published.';
         cancelButton.enabled = false;
-        var status = find.add(
-            'statictext',
-            undefined,
-            'Choose a scope, then Search or Scan. Parameters are read only on request.',
+        syncWorkButtons();
+        cancelButton.visible = false;
+        function syncWorkButtons() {
+            var working = !!cancelButton.enabled,
+                changed = cancelButton.visible !== working;
+            cancelButton.visible = working;
+            scanButton.visible = !working;
+            scanButton.text = FX.I18N.t(scanner.basic ? 'Refresh' : 'Scan');
+            if (!working && !batch.executing) {
+                hideProgress();
+            }
+            if (changed && layoutReady) {
+                layoutViewport();
+            }
+        }
+        // Phase changes and the Refresh/Cancel slot always move together.
+        function setWorking(phase) {
+            activity.enter(phase);
+            scanButton.enabled = false;
+            cancelButton.enabled = activity.cancellable();
+            syncWorkButtons();
+        }
+        function setIdle() {
+            activity.enter('idle');
+            scanButton.enabled = true;
+            cancelButton.enabled = false;
+            syncWorkButtons();
+        }
+        var status = find.add('statictext', undefined, FX.I18N.t('Choose a scope, then type a name and press Enter (or Search) to list effects.'),
             { multiline: true }
         );
-        status.preferredSize.height = 38;
+        status.preferredSize.height = 28;
+        var progress = find.add('progressbar', undefined, 0, 100);
+        progress.visible = false;
+        function showProgress(done, total) {
+            try {
+                progress.maxvalue = Math.max(1, total);
+                progress.value = Math.max(0, Math.min(done, total));
+                progress.visible = true;
+            } catch (ignoredProgress) {}
+        }
+        function hideProgress() {
+            try {
+                progress.visible = false;
+                progress.value = 0;
+            } catch (ignoredProgress) {}
+        }
         var tree = new FX.Results(find);
         tree.control.alignment = ['fill', 'fill'];
         tree.control.preferredSize = [300, 230];
@@ -789,7 +747,7 @@ FX.UI = (function () {
         }
         function selectTreeItem(event) {
             if (
-                busy ||
+                activity.busy() ||
                 renderInProgress ||
                 dialogs.length ||
                 rendering ||
@@ -950,7 +908,7 @@ FX.UI = (function () {
             });
         pager.visible = false;
         pager.maximumSize.height = 0;
-        var summary = root.add('statictext', undefined, '0 effects selected', {
+        var summary = root.add('statictext', undefined, FX.I18N.t('0 effects selected'), {
             multiline: true
         });
         summary.preferredSize.height = 34;
@@ -980,7 +938,7 @@ FX.UI = (function () {
             var targets = selected().layers;
             FX.U.assert(
                 targets.length,
-                'Select an effect occurrence or switch View to Layers.'
+                'Select an effect, or switch View to Layers to pick a layer.'
             );
             effectMatchName = '';
             effectPreset = null;
@@ -1006,7 +964,7 @@ FX.UI = (function () {
         var effectMatchName = '',
             effectDisplayName = '';
         function analyzeSelection() {
-            if (disposed || busy || renderInProgress || dialogs.length) {
+            if (disposed || activity.busy() || renderInProgress || dialogs.length) {
                 return;
             }
             var chosen = selected().instances,
@@ -1064,13 +1022,10 @@ FX.UI = (function () {
             updateActions();
         }
         function selectionDialog() {
-            var d = new Window('dialog', 'Operation selection');
+            var d = new Window('dialog', FX.I18N.t('Operation selection'));
             d.orientation = 'column';
             d.alignChildren = 'fill';
-            d.add(
-                'statictext',
-                undefined,
-                'These actions affect visible results only.'
+            d.add('statictext', undefined, FX.I18N.t('These actions affect visible results only.')
             );
             button(d, 'Select All', function () {
                 setAll(true);
@@ -1094,73 +1049,21 @@ FX.UI = (function () {
             showDialog(d);
         }
         function helpDialog() {
-            var d = new Window('dialog', 'FX Exchanger Help');
-            var installedVersion = FX.Updates.installed;
-            d.add('statictext', undefined, 'FX Exchanger ' + installedVersion);
-            d.orientation = 'column';
-            d.alignChildren = 'fill';
-            var index = dropdown(d, []),
-                i;
-            for (i = 0; i < FX.Presentation.help.length; i++) {
-                index.add('item', FX.Presentation.help[i][0]);
-            }
-            var text = d.add('edittext', undefined, '', {
-                multiline: true,
-                scrolling: true,
-                readonly: true
-            });
-            text.preferredSize = [440, 300];
-            index.onChange = function () {
-                if (index.selection) {
-                    text.text = FX.Presentation.help[index.selection.index][1];
+            var wantsDiagnostics = FX.HelpDialog.open({
+                createDialog: function (title) {
+                    return new Window('dialog', title);
+                },
+                dropdown: dropdown,
+                row: row,
+                button: button,
+                showDialog: showDialog,
+                adapter: adapter,
+                diagnostics: diagnostics,
+                disposed: function () {
+                    return disposed;
                 }
-            };
-            index.selection = 0;
-            index.onChange();
-            var updateStatus = d.add('statictext', undefined,
-                'Check GitHub for a newer version. Only runs when you click Check for updates.', { multiline: true });
-            updateStatus.preferredSize = [440, 42];
-            updateStatus.fxUpdateStatus = true;
-            var updateActions = row(d), checkingUpdates = false,
-                checkUpdates = button(updateActions, 'Check for updates', function () {
-                    if (checkingUpdates || disposed) { return; }
-                    checkingUpdates = true;
-                    checkUpdates.enabled = false;
-                    updateStatus.text = 'Checking GitHub...';
-                    try {
-                        d.update();
-                    } catch (ignoredUpdatePaint) {}
-                    try {
-                        var release = adapter.checkForUpdates(installedVersion);
-                        if (release.unpublished) {
-                            updateStatus.text = 'No published release is available yet. Installed: ' + installedVersion + '.';
-                        } else if (release.available) {
-                            updateStatus.text = 'Update available: ' + release.version + ' (installed: ' + installedVersion + '). Open Releases to download it.';
-                        } else {
-                            updateStatus.text = 'You are up to date. Installed: ' + installedVersion + '; latest release: ' + release.version + '.';
-                        }
-                    } catch (updateError) {
-                        updateStatus.text = 'Could not check for updates. Check your connection or open Releases in your browser.';
-                        diagnostics.error('check-updates', updateError);
-                    } finally {
-                        checkingUpdates = false;
-                        checkUpdates.enabled = true;
-                    }
-                });
-            button(updateActions, 'Open Releases', function () {
-                try { adapter.openReleases(); }
-                catch (browserError) { updateStatus.text = 'Open https://github.com/datacg/fxhx/releases in your browser.'; }
             });
-            var openDiagnostics = false;
-            button(d, 'Diagnostics...', function () {
-                openDiagnostics = true;
-                d.close(1);
-            });
-            button(d, 'Close', function () {
-                d.close(0);
-            });
-            showDialog(d);
-            if (openDiagnostics) {
+            if (wantsDiagnostics) {
                 diagnosticDialog();
             }
         }
@@ -1183,13 +1086,10 @@ FX.UI = (function () {
                 }
             }
             if (comps.length > 1) {
-                var d = new Window('dialog', 'Choose Timeline composition');
+                var d = new Window('dialog', FX.I18N.t('Choose Timeline composition'));
                 d.orientation = 'column';
                 d.alignChildren = 'fill';
-                d.add(
-                    'statictext',
-                    undefined,
-                    'Only the chosen composition Timeline will be selected.'
+                d.add('statictext', undefined, FX.I18N.t('Only the chosen composition Timeline will be selected.')
                 );
                 var list = dropdown(d, []);
                 for (i = 0; i < comps.length; i++) {
@@ -1277,7 +1177,7 @@ FX.UI = (function () {
                 e = s[0];
             }
             FX.U.assert(e, 'Highlight an effect occurrence first.');
-            var d = new Window('dialog', 'Effect details');
+            var d = new Window('dialog', FX.I18N.t('Effect details'));
             d.orientation = 'column';
             d.alignChildren = 'fill';
             var data =
@@ -1336,23 +1236,20 @@ FX.UI = (function () {
                 j;
             FX.U.assert(
                 targets.length > 0 && targets.length <= 2,
-                'Select one occurrence to inspect, or two of the same effect to compare.'
+                'Select one effect to inspect, or two of the same effect to compare.'
             );
             for (i = 0; i < targets.length; i++) {
                 FX.U.assert(
                     targets[i].configuration &&
                         targets[i].matchName === targets[0].matchName,
-                    'Analyze selected occurrences of the same effect first.'
+                    'Read the parameters of the selected effects first (More > Read Parameters).'
                 );
             }
             var states = targets[0].configuration.states || [],
-                d = new Window('dialog', 'Animation Inspection');
+                d = new Window('dialog', FX.I18N.t('Animation Inspection'));
             d.orientation = 'column';
             d.alignChildren = 'fill';
-            d.add(
-                'statictext',
-                undefined,
-                'Read only: choose property paths, then Inspect Selected. No keyframe writes.'
+            d.add('statictext', undefined, FX.I18N.t('Read only: choose property paths, then Inspect Selected. No keyframe writes.')
             );
             var list = d.add('listbox', undefined, [], { multiselect: true });
             list.preferredSize = [460, 110];
@@ -1368,7 +1265,7 @@ FX.UI = (function () {
             var keyTable = d.add('listbox', undefined, [], {
                 numberOfColumns: 4,
                 showHeaders: true,
-                columnTitles: ['Key', 'Time (s)', 'Value', 'Curve'],
+                columnTitles: FX.I18N.list(['Key', 'Time (s)', 'Value', 'Curve']),
                 columnWidths: [55, 85, 170, 150]
             });
             keyTable.preferredSize = [460, 150];
@@ -1509,7 +1406,7 @@ FX.UI = (function () {
             ids.sort();
             draftKey += '/' + ids.join('|');
             intent = FX.Editor.open({
-                dialog: new Window('dialog', 'Edit Parameters'),
+                dialog: new Window('dialog', FX.I18N.t('Edit Parameters')),
                 createDialog: function (title) { return new Window('dialog', title); },
                 instances: instances, layerCount: s.layers.length, rows: rows,
                 drafts: editorDraft && editorDraft.key === draftKey ? editorDraft.drafts : {},
@@ -2041,7 +1938,7 @@ FX.UI = (function () {
                     ' / ' +
                     total;
                 pageText.helpTip =
-                    'Pages limit displayed rows. Group selection includes all matching occurrences; the counter and confirmation show targets.';
+                    'Long lists are split into pages. Selecting a group includes all its effects, also on other pages; the counter and confirmation show the total.';
             } finally {
                 rendering = false;
                 diagnostics.measure(
@@ -2079,17 +1976,15 @@ FX.UI = (function () {
         }
         function updateActions() {
             var layoutChanged = resultsButton.visible !== !!lastReport;
-            searchButton.enabled = !busy;
-            mainView.enabled = !busy;
-            resultsButton.enabled = !!lastReport && !busy;
+            searchButton.enabled = !activity.busy();
+            mainView.enabled = !activity.busy();
+            resultsButton.enabled = !!lastReport && !activity.busy();
             selectResultsButton.enabled =
                 !!scanner.basic &&
                 !scanner.basic.stale &&
-                !busy &&
+                !activity.busy() &&
                 (view.instances.length > 0 || view.layers.length > 0);
             resultsButton.visible = !!lastReport;
-            parameterGroup.visible = false;
-            parameterGroup.enabled = !busy && parameterGroup.visible;
             var s = selected(),
                 fresh = !!scanner.basic && !scanner.basic.stale,
                 choice = FX.Presentation.selectionState(s, fresh),
@@ -2135,28 +2030,29 @@ FX.UI = (function () {
             if (offPage) {
                 summary.text += ' (' + offPage + ' on other pages, included)';
             }
-            primaryButton.text = 'Select an effect';
+            // A stable verb; when nothing is actionable the button is
+            // disabled and the status line explains what to select.
+            primaryButton.text = FX.I18N.t('Edit Parameters...');
             if (choice.action === 'scan') {
-                primaryButton.text = fresh ? 'Scan' : 'Refresh';
+                primaryButton.text = FX.I18N.t(fresh ? 'Scan' : 'Refresh');
             }
             if (choice.action === 'analyze') {
-                primaryButton.text = choice.same ? 'Edit Parameters...' : 'Read Parameters';
+                primaryButton.text = FX.I18N.t(choice.same ? 'Edit Parameters...' : 'Read Parameters');
             }
             if (choice.action === 'edit') {
-                primaryButton.text = 'Edit Parameters...';
+                primaryButton.text = FX.I18N.t('Edit Parameters...');
             }
-            primaryButton.enabled = !busy && choice.action !== 'none';
+            primaryButton.enabled = !activity.busy() && choice.action !== 'none';
             primaryButton.visible = !!scanner.basic;
             primaryButton.helpTip = choice.message;
-            scanButton.text =
-                scanner.basic && scanner.basic.stale ? 'Refresh' : 'Scan';
-            locateButton.enabled = fresh && !busy && s.layers.length > 0;
-            actionsButton.enabled = fresh && !busy && actionIds().length > 0;
-            enableButton.enabled = fresh && !busy && s.instances.length > 0;
+            syncWorkButtons();
+            locateButton.enabled = fresh && !activity.busy() && s.layers.length > 0;
+            actionsButton.enabled = fresh && !activity.busy() && actionIds().length > 0;
+            enableButton.enabled = fresh && !activity.busy() && s.instances.length > 0;
             disableButton.enabled = enableButton.enabled;
-            addButton.enabled = fresh && !busy && s.layers.length > 0;
-            presetsButton.enabled = !busy;
-            if (!busy) {
+            addButton.enabled = fresh && !activity.busy() && s.layers.length > 0;
+            presetsButton.enabled = !activity.busy();
+            if (!activity.busy()) {
                 status.text = choice.message;
             }
             if (fresh && !view.instances.length && !view.layers.length) {
@@ -2164,7 +2060,7 @@ FX.UI = (function () {
             }
             if (presentationFailed) {
                 primaryButton.text = 'Retry display';
-                primaryButton.enabled = !busy;
+                primaryButton.enabled = !activity.busy();
                 locateButton.enabled = false;
                 actionsButton.enabled = false;
                 enableButton.enabled =
@@ -2172,7 +2068,7 @@ FX.UI = (function () {
                     addButton.enabled =
                         false;
                 status.text =
-                    'Display failed. Retry display, press Enter or run Scan. Scanner data retained.';
+                    'The list could not be displayed. Click Retry display or press Enter; your data is kept.';
             }
             if (searchPending) {
                 primaryButton.enabled = false;
@@ -2190,7 +2086,7 @@ FX.UI = (function () {
             }
         }
         function searchProject() {
-            if (disposed || busy || renderInProgress || dialogs.length) {
+            if (disposed || activity.busy() || renderInProgress || dialogs.length) {
                 return false;
             }
             if (!scanner.basic || scanner.basic.stale) {
@@ -2209,7 +2105,7 @@ FX.UI = (function () {
             }
             if (!scanner.basic || scanner.basic.stale) {
                 status.text =
-                    'Click Search to inventory the selected scope first.';
+                    'Press Search to list the effects in this scope first.';
                 return false;
             }
             displayQuery = search.text;
@@ -2233,7 +2129,7 @@ FX.UI = (function () {
         }
         function actionsDialog() {
             FX.U.assert(
-                !busy && scanner.basic && !scanner.basic.stale,
+                !activity.busy() && scanner.basic && !scanner.basic.stale,
                 'Refresh before continuing.'
             );
             var ids = actionIds(),
@@ -2244,7 +2140,7 @@ FX.UI = (function () {
                 status.text = 'Select an effect or group to continue.';
                 return;
             }
-            var d = new Window('dialog', 'More Actions');
+            var d = new Window('dialog', FX.I18N.t('More Actions'));
             d.orientation = 'column';
             d.alignChildren = 'fill';
             var actionHost = d, actionLine = null, actionColumn = 0;
@@ -2267,12 +2163,11 @@ FX.UI = (function () {
                 });
             }
             var i,
+                // Enable/Disable/Add Effect live on the panel; More only
+                // lists actions that have no direct button.
                 names = {
-                    copy: 'Copy Settings From...',
-                    enable: 'Enable',
-                    disable: 'Disable',
-                    remove: 'Remove',
-                    apply: 'Apply Effect...'
+                    copy: 'Copy From Another Effect...',
+                    remove: 'Remove Effects'
                 };
             actionSection('Parameters');
             if (selection.instances.length && !choice.analyzed) {
@@ -2302,7 +2197,7 @@ FX.UI = (function () {
             }
             actionSection('Effects');
             for (i = 0; i < ids.length; i++) {
-                if (ids[i] !== 'copy') { actionButton(names[ids[i]], ids[i]); }
+                if (ids[i] !== 'copy' && names[ids[i]]) { actionButton(names[ids[i]], ids[i]); }
             }
             actionSection('Selection and display');
             actionButton('Add to Selection', 'add');
@@ -2312,9 +2207,6 @@ FX.UI = (function () {
             actionSection('Support');
             if (selection.instances.length) { actionButton('Details...', 'details'); }
             actionButton('Diagnostics...', 'diagnostics');
-            if (lastReport && lastReport.issues.length) {
-                actionButton('Issues...', 'issues');
-            }
             button(d, 'Cancel', function () {
                 d.close(0);
             });
@@ -2384,15 +2276,13 @@ FX.UI = (function () {
             lastRender = null;
             pager.visible = false;
             pager.maximumSize.height = 0;
-            busy = false;
-            scanButton.enabled = true;
-            cancelButton.enabled = false;
+            setIdle();
             selectedEffects = {};
             selectedLayers = {};
             view = { layers: [], instances: [] };
             tree.removeAll();
             updateActions();
-            status.text = 'Results Outdated - scope changed. Run Scan.';
+            status.text = 'Scope changed. Press Search or Scan to list its effects.';
             state.preferences.scope = scopes[scope.selection.index];
             save();
         }
@@ -2424,7 +2314,7 @@ FX.UI = (function () {
             viewSyncing = true;
             try {
                 if (!groupBy.selection || groupBy.selection.index !== index) {
-                    groupBy.selection = index;
+                    setGroupIndex(index);
                 }
             } finally {
                 viewSyncing = previous;
@@ -2453,7 +2343,7 @@ FX.UI = (function () {
                 initializing ||
                 viewSyncing ||
                 viewChanging ||
-                busy ||
+                activity.busy() ||
                 dialogs.length ||
                 !groupBy.selection
             ) {
@@ -2490,7 +2380,7 @@ FX.UI = (function () {
             if (
                 initializing ||
                 advancedDialogOpen ||
-                busy ||
+                activity.busy() ||
                 dialogs.length ||
                 disposed
             ) {
@@ -2498,13 +2388,10 @@ FX.UI = (function () {
             }
             advancedDialogOpen = true;
             try {
-                var d = new Window('dialog', 'Grouping');
+                var d = new Window('dialog', FX.I18N.t('Grouping'));
                 d.orientation = 'column';
                 d.alignChildren = 'fill';
-                d.add(
-                    'statictext',
-                    undefined,
-                    'Optional comparison views. Effects and Layers do not require grouping.'
+                d.add('statictext', undefined, FX.I18N.t('Optional comparison views. Effects and Layers do not require grouping.')
                 );
                 var choice = dropdown(d, [
                     'Configuration / layer type',
@@ -2544,7 +2431,7 @@ FX.UI = (function () {
                 initializing ||
                 viewSyncing ||
                 viewChanging ||
-                busy ||
+                activity.busy() ||
                 dialogs.length ||
                 !mainView.selection
             ) {
@@ -2558,19 +2445,18 @@ FX.UI = (function () {
             groupBy.onChange();
         }, 'view');
         function beginWork() {
-            busy = true;
+            setWorking(
+                scanner.job && scanner.job.phase === 'configuration' ? 'reading' : 'listing'
+            );
             try {
-                scanButton.enabled = false;
-                cancelButton.enabled = true;
                 updateActions();
                 tick();
             } catch (error) {
                 sessionEpoch++;
                 scanner.cancel();
-                busy = false;
+                activity.enter('idle');
                 try {
-                    scanButton.enabled = true;
-                    cancelButton.enabled = false;
+                    setIdle();
                     updateActions();
                 } catch (ignoredControls) {}
                 throw error;
@@ -2749,7 +2635,7 @@ FX.UI = (function () {
             editorContinueTask = null;
             var request = editorContinueRequest;
             editorContinueRequest = null;
-            if (!request || disposed || epoch !== sessionEpoch || busy || scanner.job || dialogs.length ||
+            if (!request || disposed || epoch !== sessionEpoch || activity.busy() || scanner.job || dialogs.length ||
                 request.project !== adapter.project()) { return; }
             var targets = selected().instances, keys = [], i;
             for (i = 0; i < targets.length; i++) { keys.push(FX.Model.effectKey(targets[i])); }
@@ -2783,9 +2669,7 @@ FX.UI = (function () {
                 cancelEditorContinuation();
                 pendingRestore = null;
                 scanner.invalidate();
-                busy = false;
-                scanButton.enabled = true;
-                cancelButton.enabled = false;
+                setIdle();
                 status.text =
                     'Error - operation stopped. See Diagnostics; run Scan again.';
                 reportError('scan', e);
@@ -2804,24 +2688,23 @@ FX.UI = (function () {
         scanner.onProgress = function (l, e, c, total, phase) {
             status.text =
                 (phase === 'basic'
-                    ? 'Scanning '
-                    : 'Analyzing Configurations ') +
+                    ? 'Listing effects: composition '
+                    : 'Reading parameters: effect ') +
                 Math.min(c + 1, total) +
-                ' / ' +
+                ' of ' +
                 total +
-                (phase === 'basic' ? ' compositions; ' : ' candidates; ') +
+                ' (' +
                 l +
-                ' layers / ' +
+                ' layers, ' +
                 e +
-                ' effects';
+                ' effects found)';
+            showProgress(Math.min(c + 1, total), total);
         };
         scanner.onDone = function (result) {
             if (disposed) {
                 return;
             }
-            busy = false;
-            scanButton.enabled = true;
-            cancelButton.enabled = false;
+            setIdle();
             var recovered =
                 result.analysisState === 'basic'
                     ? restoreRefreshTargets(result)
@@ -2837,9 +2720,7 @@ FX.UI = (function () {
                         expected: recovered.targets.length,
                         skipped: recovered.skipped
                     };
-                    busy = true;
-                    scanButton.enabled = false;
-                    cancelButton.enabled = true;
+                    setWorking('reading');
                     status.text = 'Changes applied. Updating parameters for ' + recovered.targets.length + ' selected effects...';
                     updateActions();
                     return;
@@ -2847,9 +2728,7 @@ FX.UI = (function () {
                     pendingParameterRefresh = null;
                     cancelEditorContinuation();
                     scanner.cancel();
-                    busy = false;
-                    scanButton.enabled = true;
-                    cancelButton.enabled = false;
+                    setIdle();
                     render();
                     reportError('post-edit-read', readStartError);
                     status.text = 'Changes applied. Parameters could not be updated; review Results and refresh/read parameters to continue.';
@@ -2892,140 +2771,52 @@ FX.UI = (function () {
         batch.onProgress = function (index, total) {
             if (!disposed) {
                 status.text =
-                    'Applying target ' +
+                    'Applying ' +
                     (index + 1) +
-                    ' / ' +
+                    ' of ' +
                     total +
-                    '. Await host return; Cancel cannot interrupt a synchronous API.';
+                    '. After Effects may not respond until this finishes.';
+                showProgress(index + 1, total);
             }
         };
         function confirmAndExecute(targets, id, options) {
             var plan = batch.preview(targets, id, options),
-                title = id,
-                description = '',
-                partial = false,
-                i,
-                j;
-            if (options && options.rows && id !== 'apply') {
-                title = 'Change ' + FX.Presentation.effectName(targets[0]);
-                for (i = 0; i < options.rows.length; i++) {
-                    var change = options.rows[i],
-                        values = {},
-                        distinct = [],
-                        count = 0,
-                        removedKeys = 0,
-                        animatedTargets = 0,
-                        authorized,
-                        ai,
-                        old,
-                        prior,
-                        key;
-                    for (j = 0; j < targets.length; j++) {
-                        prior = FX.Presentation.parameterStatus(targets[j], change.path);
-                        if (prior.hasValue) {
-                            key = '$' + FX.JSON.stringify(prior.currentValue);
-                            if (!values[key]) { values[key] = 0; distinct.push(prior.currentValue); }
-                            values[key]++;
-                        }
-                        old = FX.Config.row(
-                            targets[j].configuration,
-                            change.path
-                        );
-                        if (
-                            old &&
-                            old.valueType === change.valueType &&
-                            !targets[j].locked
-                        ) {
-                            count++;
-                        }
-                        authorized = (plan.keyframeRemovals || {})['$' + FX.Model.effectKey(targets[j])] || [];
-                        for (ai = 0; ai < authorized.length; ai++) {
-                            if (FX.Config.key(authorized[ai].path) === FX.Config.key(change.path)) {
-                                count++;
-                                animatedTargets++;
-                                removedKeys += authorized[ai].keyCount;
-                            }
-                        }
-                    }
-                    var fromParts = [], vi;
-                    for (vi = 0; vi < distinct.length; vi++) {
-                        fromParts.push(FX.Parameters.display(change, distinct[vi]) +
-                            ' (' + values['$' + FX.JSON.stringify(distinct[vi])] + ')');
-                    }
-                    var from = fromParts.length ? fromParts.join('; ') : 'Unavailable';
-                    description +=
-                        change.name +
-                        ': ' +
-                        from +
-                        ' -> ' +
-                        (change.keepCurrent ? 'Keep each current value; clear keyframes' : FX.Parameters.display(change)) +
-                        '\n';
-                    if (removedKeys) {
-                        description += 'Remove ' + removedKeys + ' keyframes in ' + animatedTargets +
-                            ' effects for ' + change.name + (change.keepCurrent ? '; keep each current value.\n' : '; replace with this fixed value.\n');
-                    }
-                    if (count < targets.length) {
-                        FX.U.assert(!options.requireAll, 'Cannot update all selected effects; adjust the selection or pending changes');
-                        partial = true;
-                        description +=
-                            'Expected: ' +
-                            count +
-                            '/' +
-                            targets.length +
-                            ' effects; others preserved.\n';
-                    }
-                }
-                description += 'Other parameters unchanged.\n';
-                if (options.requireAll) { description += 'Every pending parameter applies to all ' + targets.length + ' selected effects.\n'; }
-            } else if (id === 'remove') {
-                description =
-                    'Remove entire effects, including keyframes and expressions.\n';
-            } else if (id === 'apply') {
-                description =
-                    'Apply ' +
-                    (options.displayName || options.matchName) +
-                    '.\n';
-                if (options.rows) {
-                    partial = true;
-                    description +=
-                        'Preset: ' +
-                        options.presetName +
-                        '. Adds a NEW instance and sets ' +
-                        options.rows.length +
-                        ' static parameters. Unsupported parameters may be skipped. Existing effects are not replaced. A failed write can leave the new instance in the project.\n';
-                }
-            }
-            description +=
-                'Affected: ' +
-                targets.length +
-                (id === 'apply' ? ' target layers / ' : ' effects / ') +
-                plan.layerCount +
-                ' layers / ' +
-                plan.compCount +
-                ' compositions.';
-            var d = new Window('dialog', 'Confirm changes');
+                summary = FX.Confirmation.describe(targets, id, options, plan),
+                title = summary.title,
+                description = summary.description,
+                changeRows = summary.changeRows,
+                partial = summary.partial,
+                i;
+            var d = new Window('dialog', FX.I18N.t('Confirm changes'));
             d.orientation = 'column';
             d.alignChildren = 'fill';
             d.add('statictext', undefined, title);
+            if (changeRows.length) {
+                // One row per parameter: easier to scan than a text dump.
+                var table = d.add('listbox', undefined, [], {
+                    numberOfColumns: 3,
+                    showHeaders: true,
+                    columnTitles: FX.I18N.list(['Parameter', 'Current (effects)', 'New value']),
+                    columnWidths: [150, 220, 150]
+                });
+                table.fxChangeTable = true;
+                table.preferredSize = [540, Math.min(220, 44 + changeRows.length * 20)];
+                for (i = 0; i < changeRows.length; i++) {
+                    var changeItem = table.add('item', changeRows[i][0]);
+                    changeItem.subItems[0].text = changeRows[i][1];
+                    changeItem.subItems[1].text = changeRows[i][2];
+                }
+            }
             var text = d.add('edittext', undefined, description, {
                 multiline: true,
                 scrolling: true,
                 readonly: true
             });
-            text.preferredSize = [
-                400,
-                Math.min(
-                    260,
-                    70 + (options.rows ? options.rows.length * 32 : 0)
-                )
-            ];
+            text.preferredSize = [540, Math.min(160, 50 + (description.split('\n').length - 1) * 16)];
             var agreement = null,
                 animationAgreement = null;
             if (partial) {
-                agreement = d.add(
-                    'checkbox',
-                    undefined,
-                    'I agree to apply only compatible occurrences.'
+                agreement = d.add('checkbox', undefined, FX.I18N.t('I understand: only compatible effects will change.')
                 );
                 agreement.value = false;
             }
@@ -3035,12 +2826,15 @@ FX.UI = (function () {
                 animationAgreement.value = false;
             }
             var controls = row(d);
+            controls.alignment = ['right', 'center'];
             var apply = button(controls, 'Apply', function () {
                 if ((partial && !agreement.value) || (animationAgreement && !animationAgreement.value)) {
                     return;
                 }
                 d.close(1);
             });
+            apply.text = FX.I18N.applyTo(id === 'apply', targets.length);
+            apply.preferredSize.width = Math.max(apply.preferredSize.width, apply.text.length * 6 + 16);
             function updateAgreement() {
                 apply.enabled = (!partial || agreement.value) &&
                     (!animationAgreement || animationAgreement.value);
@@ -3052,9 +2846,12 @@ FX.UI = (function () {
             if (animationAgreement) {
                 animationAgreement.onClick = updateAgreement;
             }
-            button(controls, 'Cancel', function () {
+            var cancelChanges = button(controls, 'Cancel', function () {
                 d.close(0);
             });
+            // Enter cancels; applying a batch always needs an explicit click.
+            d.defaultElement = cancelChanges;
+            d.cancelElement = cancelChanges;
             d.center();
             if (showDialog(d) !== 1 || disposed) {
                 return false;
@@ -3064,13 +2861,14 @@ FX.UI = (function () {
                 'Close dialogs before executing changes'
             );
             rememberRefreshTargets(targets, id);
-            busy = true;
+            setWorking('applying');
             lastReport = null;
             batch.lastReport = null;
             var batchFailure = null;
             try {
                 scanButton.enabled = false;
                 cancelButton.enabled = false;
+                syncWorkButtons();
                 status.text =
                     'Validating all targets before writing. Synchronous host calls may block this panel.';
                 updateActions();
@@ -3079,9 +2877,7 @@ FX.UI = (function () {
                 lastReport = batch.lastReport;
                 batchFailure = batchError;
             } finally {
-                busy = false;
-                scanButton.enabled = true;
-                cancelButton.enabled = false;
+                setIdle();
                 context();
             }
             if (batchFailure) {
@@ -3105,7 +2901,42 @@ FX.UI = (function () {
                 !lastReport.unknown &&
                 !lastReport.verificationFailed
             ) {
-                runScan(true, id === 'set' || id === 'copy');
+                if (!refreshWithoutRescan(targets, id)) {
+                    runScan(true, id === 'set' || id === 'copy');
+                }
+            }
+            return true;
+        }
+        // Fast path after value-only operations: keep the effect list, re-check
+        // the written targets and re-read only their parameters (set/copy).
+        // Structural operations (remove, add effect) still relist the scope.
+        function refreshWithoutRescan(targets, id) {
+            if (!FX.U.contains(['set', 'copy', 'enable', 'disable'], id) || !refreshTargets ||
+                disposed || scanner.job || ticking) {
+                return false;
+            }
+            var saved = refreshTargets;
+            if (!scanner.reuseAfterWrite(saved.project, targets)) {
+                return false;
+            }
+            sessionEpoch++;
+            pendingParameterRefresh = null;
+            pendingRestore = saved;
+            pendingRestore.readParameters = id === 'set' || id === 'copy';
+            selectedEffects = {};
+            selectedLayers = {};
+            activeTarget = null;
+            activeNodeKey = null;
+            activeEffectKey = null;
+            groupCache = [];
+            lastRender = null;
+            editorDraft = null;
+            diagnostics.measure('refreshWithoutRescan', 0, targets.length);
+            // Same completion path as a Basic scan: restore the selection,
+            // then (for edits) read only the targets on the next scheduler tick.
+            scanner.onDone(scanner.basic);
+            if (scanner.job && scanner.task === null) {
+                scanner.task = adapter.schedule(callback, sessionEpoch);
             }
             return true;
         }
@@ -3156,13 +2987,10 @@ FX.UI = (function () {
                 targets.length,
                 'No compatible static parameters are available. Animation inspection is read only.'
             );
-            var d = new Window('dialog', 'Copy Parameters');
+            var d = new Window('dialog', FX.I18N.t('Copy Parameters'));
             d.orientation = 'column';
             d.alignChildren = 'fill';
-            d.add(
-                'statictext',
-                undefined,
-                'Choose the source occurrence. Only the static parameters you choose will be copied.'
+            d.add('statictext', undefined, FX.I18N.t('Choose the effect to copy from. Only the static parameters you choose will be copied.')
             );
             var sources = dropdown(d, []);
             for (i = 0; i < targets.length; i++) {
@@ -3226,7 +3054,7 @@ FX.UI = (function () {
                 FX.U.assert(
                     targets[i].matchName === data.matchName &&
                         targets[i].configuration,
-                    'Select analyzed occurrences of the same effect. Other effect types cannot receive these parameters.'
+                    'Select effects of the same type with parameters read. Other effect types cannot receive these parameters.'
                 );
             }
             publicRows = FX.Parameters.rows(data.matchName, FX.U.clone(data.rows));
@@ -3255,7 +3083,7 @@ FX.UI = (function () {
         }
         function editPreset(preset) {
             var rows = FX.Parameters.rows(preset.matchName, FX.U.clone(preset.rows)),
-                d = new Window('dialog', 'Edit preset');
+                d = new Window('dialog', FX.I18N.t('Edit preset'));
             FX.U.assert(rows.length, 'This preset contains no public editable parameters.');
             d.orientation = 'column';
             d.alignChildren = 'fill';
@@ -3265,60 +3093,80 @@ FX.UI = (function () {
                 preset.name + ' [' + preset.matchName + ']'
             );
             var list = d.add('listbox', undefined, []),
-                i;
+                i,
+                editing = -1,
+                dirty = false;
             list.preferredSize = [420, 220];
-            for (i = 0; i < rows.length; i++) {
-                list.add(
-                    'item',
-                    rows[i].name + ' = ' + FX.Parameters.display(rows[i])
-                );
+            function presetLabel(r) {
+                return r.name + ' = ' + FX.Parameters.display(r);
             }
-            d.add(
-                'statictext',
-                undefined,
-                'Edit one parameter per save. Number or JSON array; only the saved preset changes.'
+            for (i = 0; i < rows.length; i++) {
+                list.add('item', presetLabel(rows[i]));
+            }
+            d.add('statictext', undefined, FX.I18N.t('Edit any number of parameters, then Save preset. Only the saved preset changes, not the project.')
             );
-            var presetValueHost = d.add('group');
-            presetValueHost.orientation = 'stack';
-            presetValueHost.alignChildren = ['fill', 'center'];
-            presetValueHost.minimumSize.height = 24;
-            var value = presetValueHost.add('edittext', undefined, '');
-            value.minimumSize = [180, 24];
-            var presetMenu = presetValueHost.add('dropdownlist', undefined, []);
-            presetMenu.minimumSize = [180, 24];
-            presetMenu.fxPresetMenu = true;
-            list.onChange = function () {
-                if (list.selection) {
-                    var selectedRow = rows[list.selection.index], c, item;
-                    presetMenu.removeAll();
-                    presetMenu.visible = !!(selectedRow.control && selectedRow.control.kind === 'menu');
-                    value.visible = !presetMenu.visible;
-                    if (presetMenu.visible) {
-                        for (c = 0; c < selectedRow.control.choices.length; c++) {
-                            item = presetMenu.add('item', selectedRow.control.choices[c].label);
-                            item.fxValue = selectedRow.control.choices[c].value;
-                            if (item.fxValue === selectedRow.value) { presetMenu.selection = item; }
-                        }
-                    }
-                    value.text = FX.JSON.stringify(
-                        rows[list.selection.index].value
-                    );
+            var presetInput = FX.ValueInput.create(d, {
+                    menuFlag: 'fxPresetMenu',
+                    keepLabel: 'Keep saved value',
+                    onError: function (error) { presetError.text = String(error.message || error); }
+                }),
+                presetError = d.add('statictext', undefined, '', { multiline: true });
+            presetError.preferredSize = [420, 30];
+            presetInput.onChange(function () {
+                dirty = true;
+                presetError.text = '';
+            });
+            // Commits the visible field into the preset rows; throws a
+            // readable message when the typed value is invalid.
+            function commitPresetValue() {
+                if (editing < 0 || !dirty) {
+                    return;
                 }
-            };
+                var r = rows[editing], v;
+                if (FX.ValueInput.isMenu(r)) {
+                    v = presetInput.menuChoice();
+                    if (v === null) {
+                        dirty = false;
+                        return;
+                    }
+                } else {
+                    v = FX.ValueInput.parse(r, presetInput.texts());
+                }
+                var candidate = FX.U.clone(r);
+                candidate.value = v;
+                FX.Validate.rows([candidate]);
+                r.value = v;
+                list.items[editing].text = presetLabel(r);
+                dirty = false;
+            }
+            list.onChange = guard(function () {
+                if (!list.selection || list.selection.index === editing) {
+                    return;
+                }
+                try {
+                    commitPresetValue();
+                } catch (invalid) {
+                    presetError.text = rows[editing].name + ': ' + String(invalid.message || invalid);
+                    list.selection = editing;
+                    return;
+                }
+                editing = list.selection.index;
+                var selectedRow = rows[editing];
+                presetInput.setRow(
+                    selectedRow,
+                    FX.ValueInput.isMenu(selectedRow) ? null : FX.ValueInput.texts(selectedRow.value),
+                    selectedRow.value
+                );
+                dirty = false;
+                try { d.layout.layout(true); } catch (ignoredLayout) {}
+            }, 'preset-parameter');
             list.selection = 0;
             list.onChange();
             button(d, 'Save preset', function () {
                 FX.U.assert(list.selection, 'Choose a parameter');
-                var index = list.selection.index,
-                    v;
-                if (presetMenu.visible) {
-                    FX.U.assert(presetMenu.selection, 'Choose a dropdown option');
-                    v = presetMenu.selection.fxValue;
-                } else {
-                    v = FX.JSON.parse(value.text);
-                }
-                FX.Validate.value(rows[index].valueType, v);
-                rows[index].value = v;
+                dirty = true;
+                commitPresetValue();
+                FX.Validate.rows(rows);
                 presets().save(
                     preset.name,
                     preset.matchName,
@@ -3334,7 +3182,7 @@ FX.UI = (function () {
             showDialog(d);
         }
         function presetDialog() {
-            if (busy || initializing || dialogs.length) {
+            if (activity.busy() || initializing || dialogs.length) {
                 return;
             }
             var library = presets();
@@ -3342,13 +3190,10 @@ FX.UI = (function () {
                 var entries = library.list(),
                     action = null,
                     selectedId = null,
-                    d = new Window('dialog', 'Effect presets');
+                    d = new Window('dialog', FX.I18N.t('Effect presets'));
                 d.orientation = 'column';
                 d.alignChildren = 'fill';
-                d.add(
-                    'statictext',
-                    undefined,
-                    'Single-effect static presets. No sets, keyframes or expressions.'
+                d.add('statictext', undefined, FX.I18N.t('Single-effect static presets. No sets, keyframes or expressions.')
                 );
                 var list = d.add('listbox', undefined, []),
                     i;
@@ -3457,7 +3302,7 @@ FX.UI = (function () {
                     return;
                 } else if (action === 'import') {
                     file = File.openDialog(
-                        'Import FX Exchanger presets',
+                        'Import FXHX presets',
                         'JSON:*.json'
                     );
                     if (file) {
@@ -3481,7 +3326,7 @@ FX.UI = (function () {
                     }
                 } else if (action === 'export') {
                     file = File.saveDialog(
-                        'Export all FX Exchanger presets',
+                        'Export all FXHX presets',
                         'JSON:*.json'
                     );
                     if (file) {
@@ -3504,14 +3349,11 @@ FX.UI = (function () {
                 all.length || saved.length,
                 'No effects are available to apply.'
             );
-            var d = new Window('dialog', 'Choose effect to apply');
+            var d = new Window('dialog', FX.I18N.t('Choose effect to apply'));
             d.orientation = 'column';
             d.alignChildren = 'fill';
             if (presetLoadFailed) {
-                d.add(
-                    'statictext',
-                    undefined,
-                    'Saved presets unavailable. Original files preserved; see Help > Diagnostics.'
+                d.add('statictext', undefined, FX.I18N.t('Saved presets unavailable. Original files preserved; see Help > Diagnostics.')
                 );
             }
             var kind = dropdown(d, ['All effects', 'Saved presets']);
@@ -3634,7 +3476,7 @@ FX.UI = (function () {
         function copyReference() {
             var s = selected(),
                 available = comparableInstances(),
-                d = new Window('dialog', 'Choose copy reference');
+                d = new Window('dialog', FX.I18N.t('Choose copy reference'));
             FX.U.assert(s.instances.length, 'Select target occurrences first.');
             d.orientation = 'column';
             d.alignChildren = 'fill';
@@ -3657,16 +3499,13 @@ FX.UI = (function () {
             button(d, 'Use analyzed result', function () {
                 FX.U.assert(
                     list.selection,
-                    'Choose an analyzed reference occurrence.'
+                    'Choose an effect whose parameters were read.'
                 );
                 chosenConfiguration =
                     available[list.selection.index].configuration;
                 d.close(1);
             });
-            d.add(
-                'statictext',
-                undefined,
-                'Optional: select ONE effect in After Effects Effect Controls first.',
+            d.add('statictext', undefined, FX.I18N.t('Optional: select ONE effect in After Effects Effect Controls first.'),
                 { multiline: true }
             );
             button(d, 'Use Effect Controls reference', function () {
@@ -3691,13 +3530,13 @@ FX.UI = (function () {
         function chooseGrouping() {
             FX.U.assert(
                 scanner.basic && !scanner.basic.stale,
-                'Run Scan and select an effect occurrence first'
+                'List the effects (Search) and select one first'
             );
             var s = selected().instances;
             FX.U.assert(s.length, 'Select an occurrence first');
             FX.U.assert(
                 s[0].configuration,
-                'Select an occurrence and use Read Parameters first.'
+                'Select an effect and use More > Read Parameters first.'
             );
             var chosen = pickRows(
                 s[0].configuration,
@@ -3717,7 +3556,7 @@ FX.UI = (function () {
             if (filters.property) {
                 propertyFilters.push(FX.U.clone(filters.property));
             }
-            var d = new Window('dialog', 'Layer and effect filters');
+            var d = new Window('dialog', FX.I18N.t('Layer and effect filters'));
             d.orientation = 'column';
             d.alignChildren = 'fill';
             var cn = d.add('edittext', undefined, filters.compName || '');
@@ -3738,7 +3577,7 @@ FX.UI = (function () {
                 labels = ['Any label'],
                 i;
             for (i = 0; i < type.items.length; i++) {
-                if (type.items[i].text === filters.type) {
+                if ((type.items[i].fxKey || type.items[i].text) === filters.type) {
                     type.selection = i;
                 }
             }
@@ -3808,7 +3647,7 @@ FX.UI = (function () {
             animation.helpTip =
                 'Uses known analysis metadata only; unknown is never Static.';
             for (i = 0; i < animation.items.length; i++) {
-                if (animation.items[i].text === filters.animation) {
+                if ((animation.items[i].fxKey || animation.items[i].text) === filters.animation) {
                     animation.selection = i;
                 }
             }
@@ -3823,7 +3662,7 @@ FX.UI = (function () {
                 var s = selected().instances;
                 FX.U.assert(
                     s.length,
-                    'Select a scanned occurrence before choosing a property'
+                    'Select an effect from the list before choosing a property'
                 );
                 FX.U.assert(
                     s[0].configuration,
@@ -3864,9 +3703,9 @@ FX.UI = (function () {
             button(buttons, 'Use filters', function () {
                 filters.property = null;
                 filters.properties = propertyFilters;
-                filters.animation = animation.selection.text;
+                filters.animation = animation.selection.fxKey || animation.selection.text;
                 filters.compName = cn.text;
-                filters.type = type.selection.text;
+                filters.type = type.selection.fxKey || type.selection.text;
                 filters.label = null;
                 if (label.selection.index) {
                     filters.label = label.selection.index - 1;
@@ -3894,7 +3733,7 @@ FX.UI = (function () {
             FX.U.assert(
                 scanner.inventory() &&
                     scanner.inventory().analysisState === 'analyzed',
-                'Run Configuration Analysis before comparing configurations.'
+                'Read the parameters (More > Read Parameters) before comparing.'
             );
             var scan = scanner.current(),
                 choices = FX.Grouping.build(
@@ -3907,7 +3746,7 @@ FX.UI = (function () {
                 choices.length >= 2,
                 'At least two configuration groups are needed'
             );
-            var d = new Window('dialog', 'Compare configurations');
+            var d = new Window('dialog', FX.I18N.t('Compare configurations'));
             d.orientation = 'column';
             d.alignChildren = 'fill';
             var a = dropdown(d, []),
@@ -3925,12 +3764,12 @@ FX.UI = (function () {
             }
             a.selection = 0;
             b.selection = 1;
-            var showAll = d.add('checkbox', undefined, 'Show all properties'),
+            var showAll = d.add('checkbox', undefined, FX.I18N.t('Show all properties')),
                 list = d.add('listbox', undefined, [], {
                     multiselect: true,
                     numberOfColumns: 3,
                     showHeaders: true,
-                    columnTitles: ['Property', 'A', 'B'],
+                    columnTitles: FX.I18N.list(['Property', 'A', 'B']),
                     columnWidths: [220, 110, 110]
                 });
             list.preferredSize = [460, 260];
@@ -4011,7 +3850,7 @@ FX.UI = (function () {
         }
         function issuesDialog() {
             FX.U.assert(lastReport, 'No operation results');
-            var d = new Window('dialog', 'Operation results');
+            var d = new Window('dialog', FX.I18N.t('Operation results'));
             d.orientation = 'column';
             d.alignChildren = 'fill';
             var outcomeSummary = d.add('statictext', undefined, FX.Presentation.reportSummary(lastReport), { multiline: true });
@@ -4062,7 +3901,7 @@ FX.UI = (function () {
             showDialog(d);
         }
         function diagnosticDialog() {
-            var d = new Window('dialog', 'FX Exchanger diagnostics');
+            var d = new Window('dialog', FX.I18N.t('FXHX diagnostics'));
             d.orientation = 'column';
             d.alignChildren = 'fill';
             var text = d.add('edittext', undefined, diagnostics.text(), {
@@ -4093,7 +3932,7 @@ FX.UI = (function () {
                 scope.selection = i;
             }
         }
-        groupBy.selection = 7;
+        setGroupIndex(7);
         mainView.selection = 0;
         choose.enabled = scope.selection.index === 1;
         var controller = {
@@ -4137,7 +3976,20 @@ FX.UI = (function () {
             render: render,
             diagnostics: diagnostics,
             applySearch: applySearch,
-            selected: selected
+            selected: selected,
+            activity: activity,
+            // Grouping mode is data (see setGroupIndex); exposed for tests and tooling.
+            groupMode: function () {
+                return groupBy.selection.index;
+            },
+            setGroupMode: function (index) {
+                setGroupIndex(index);
+            },
+            groupChanged: function () {
+                if (groupBy.onChange) {
+                    groupBy.onChange();
+                }
+            }
         };
         w.fxController = controller;
         w.onClose = function () {

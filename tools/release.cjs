@@ -3,9 +3,19 @@ const fs = require('node:fs'),
     zlib = require('node:zlib'),
     crypto = require('node:crypto');
 const root = path.resolve(__dirname, '..'),
-    version = require('../package.json').version;
+    version = require('../package.json').version,
+    gate = require('./host-gate.cjs'),
+    candidate = process.argv.includes('--candidate');
+const hostProblems = gate.problems(root, version);
+if (hostProblems.length && !candidate) {
+    console.error('Release blocked: no After Effects validation for ' + version + '.');
+    for (const p of hostProblems) console.error('  - ' + p);
+    console.error('Run docs/HOST_SMOKE_CHECKLIST.md in AE and record it, or use');
+    console.error('"npm run release:candidate" for an unvalidated test build.');
+    process.exit(1);
+}
 const files = [
-    ['dist/FX Exchanger.jsx', 'FX Exchanger.jsx'],
+    ['dist/FXHX.jsx', 'FXHX.jsx'],
     ...[
         'README.md',
         'INSTALL.md',
@@ -13,11 +23,19 @@ const files = [
         'CHANGELOG.md',
         'VALIDATION.md',
         'docs/UI_QA.md',
-        'docs/MIXED_VALUES_0.1.15.md',
-        'docs/UPDATE_CHECK_0.1.15.md'
+        'docs/HOST_SMOKE_CHECKLIST.md',
+        'docs/CHANGES_0.1.16.md'
     ].map((x) => [x, x])
 ];
-const manifest = { product: 'FX Exchanger', version, files: {} };
+const manifest = {
+    product: 'FXHX',
+    version,
+    hostValidated: hostProblems.length === 0,
+    files: {}
+};
+if (!manifest.hostValidated) {
+    console.warn('CANDIDATE build: not validated in After Effects (MANIFEST hostValidated=false).');
+}
 const entries = files.map(([source, name]) => {
     const data = fs.readFileSync(path.join(root, source));
     manifest.files[name] = crypto
@@ -83,7 +101,7 @@ fs.mkdirSync(path.join(root, 'release'), { recursive: true });
 const destination = path.join(
     root,
     'release',
-    'FX-Exchanger-' + version + '.zip'
+    'FXHX-' + version + '.zip'
 );
 fs.writeFileSync(destination, Buffer.concat([...locals, cd, end]));
 console.log(

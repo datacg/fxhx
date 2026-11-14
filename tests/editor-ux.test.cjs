@@ -62,7 +62,7 @@ test('pending list navigation keeps the correct drafts under programmatic dropdo
         h.click(d,'Clear this change');
         assert.deepEqual(pending.items.map(i=>i.text),['Exposure']);
         h.click(d,'Clear all changes');assert.equal(pending.items.length,0);
-        assert.equal(h.all(d,'button').find(b=>b.text==='Apply').enabled,false);
+        assert.equal(h.all(d,'button').find(b=>b.fxTitle==='Apply').enabled,false);
         h.click(d,'Cancel');
     };
     h.click(p,'Edit Parameters...');
@@ -86,7 +86,7 @@ test('invalid input stays staged but prevents applying any pending parameter',()
     h.dialogHooks['Edit Parameters']=d=>{
         numeric(h,d,'Exposure',20); numeric(h,d,'Radius','oops');
         assert.equal(flagged(h,d,'listbox','fxPendingChanges').items.length,2);
-        assert.equal(h.all(d,'button').find(b=>b.text==='Apply').enabled,false);
+        assert.equal(h.all(d,'button').find(b=>b.fxTitle==='Apply').enabled,false);
         h.click(d,'Cancel');
     };
     h.click(p,'Edit Parameters...');assert.equal(h.calls.filter(c=>c[0]==='set').length,0);
@@ -304,7 +304,7 @@ test('editor offers a single Apply and explains how to continue editing', () => 
     h.dialogHooks['Edit Parameters']=d=>{
         assert.ok(h.all(d,'statictext').some(c=>/To make more changes, use Edit Parameters again/.test(c.text)));
         assert.equal(h.all(d,'button').filter(b=>/^Apply/.test(b.text)).length,1);
-        assert.match(h.all(d,'button').find(b=>b.text==='Apply').helpTip,/stays ready/);
+        assert.match(h.all(d,'button').find(b=>b.fxTitle==='Apply').helpTip,/stays ready/);
         h.click(d,'Cancel');
     };
     h.click(p,'Edit Parameters...');
@@ -346,7 +346,7 @@ test('pending markers follow numeric and menu drafts through filtering and clear
         choose(h,d,'Exposure');h.click(d,'Clear this change');assert.equal(list.items[0].text,'Exposure');
         h.click(d,'Clear all changes');
         assert.deepEqual(list.items.map(item=>item.text),['Exposure','Radius','Blend Mode']);
-        assert.equal(h.all(d,'button').find(b=>b.text==='Apply').enabled,false);
+        assert.equal(h.all(d,'button').find(b=>b.fxTitle==='Apply').enabled,false);
         h.click(d,'Cancel');
     };
     h.click(p,'Edit Parameters...');assert.equal(h.notifications.overflow,0);
@@ -364,7 +364,7 @@ test('invalid markers distinguish errors from valid pending changes and persist 
         const input=h.parameterFields(d)[0];input.text='21';input.onChanging();
         assert.equal(list.selection.text,'* Exposure');
         assert.ok(h.all(d,'statictext').some(c=>c.text==='Exposure - Pending change'));
-        assert.equal(h.all(d,'button').find(b=>b.text==='Apply').enabled,true);
+        assert.equal(h.all(d,'button').find(b=>b.fxTitle==='Apply').enabled,true);
         input.text='';input.onChanging();assert.equal(list.selection.text,'Exposure');
         assert.equal(flagged(h,d,'listbox','fxPendingChanges').items.length,0);
         h.click(d,'Cancel');

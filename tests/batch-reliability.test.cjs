@@ -105,7 +105,7 @@ function synthetic() {
     const scan = h.scan();
     return { h, l, effects, scan, reads: () => reads };
 }
-test('three synthetic partial effects keep six conservative captures, record slow reads and report partial writes accurately', () => {
+test('three effects on one layer: prevalidation captures all, writes recapture only after a sibling was written', () => {
     const { h, effects, scan, reads } = synthetic();
     const metrics = h.adapter.diagnostics.metrics;
     const captures = metrics.$capture.count,
@@ -134,8 +134,10 @@ test('three synthetic partial effects keep six conservative captures, record slo
             rows: [config(70).properties[0]]
         })
     );
-    assert.equal(metrics.$capture.count - captures, 6);
-    assert.equal(reads() - priorReads, 6);
+    // 3 prevalidation captures + 2 recaptures: the first write on the layer
+    // reuses its prevalidation capture; the next two follow a sibling write.
+    assert.equal(metrics.$capture.count - captures, 5);
+    assert.equal(reads() - priorReads, 5);
     assert.equal(r.changed, 2);
     assert.equal(r.failed, 2);
     assert.equal(r.written, 2);
@@ -165,7 +167,7 @@ test('three synthetic partial effects keep six conservative captures, record slo
     assert.equal(metrics.$capture.lastMs, 12);
     assert.equal(metrics.$validateOccurrence.lastMs, 12);
     assert.equal(metrics.$prevalidation.totalMs, 36);
-    assert.equal(metrics.$totalBatch.totalMs, 72);
+    assert.equal(metrics.$totalBatch.totalMs, 60); // was 72 with a redundant recapture
     const fs = require('node:fs');
     fs.mkdirSync('artifacts', { recursive: true });
     fs.writeFileSync(

@@ -1,6 +1,18 @@
 # Changelog
 
-## 0.1.15 — primeira versão pública
+## 0.1.16 — FXHX, edição mais rápida e editor redesenhado
+
+- **Nome FXHX:** o arquivo passa a ser `FXHX.jsx`. Apague o `FX Exchanger.jsx` antigo; preferências e presets são mantidos.
+- **Aplicar ficou mais rápido:** edições, Enable e Disable mantêm a lista de efeitos e releem só os efeitos alterados, sem relistar o projeto. Cada efeito é lido uma vez a menos antes de gravar.
+- **Editor em dois painéis** (lista + parâmetro selecionado), com Apply mostrando a contagem de alterações.
+- **Entrada de valores:** vírgula decimal, campos X/Y/Z e R/G/B/A, cor por hex ou seletor do sistema, caixa de seleção para parâmetros liga/desliga (com Number.../Checkbox para alternar).
+- **Confirmação** com tabela atual → novo; Enter cancela, aplicar exige clique.
+- **Painel mais compacto:** três linhas no topo, Refresh/Cancel no mesmo lugar, barra de progresso, ações sem duplicatas e mensagens mais claras.
+- **Interface em português** quando o After Effects está em português (`FXHX_LANG` força o idioma).
+- Presets editam vários parâmetros de uma vez; Check for updates avisa quando o AE bloqueia a rede.
+- 282 testes automatizados. Validação no After Effects pelo [checklist](docs/HOST_SMOKE_CHECKLIST.md). [Detalhes](docs/CHANGES_0.1.16.md).
+
+## 0.1.15 — primeira versão pública (como FX Exchanger)
 
 - Busca de efeitos por escopo, seleção por ocorrência/layer/grupo e comparação de configurações legíveis.
 - Edição de vários parâmetros em um único lote, com busca, filtros, pendências e revisão antes de aplicar.

@@ -164,6 +164,9 @@ function fixture(extra = {}) {
         $: { global: {} }
     });
     const { FX } = ctx;
+    // Small slices keep multi-tick paths (cancel, reentry, stale callbacks)
+    // covered with small fixtures; production uses FX.Scanner.SLICE_STEPS.
+    FX.Scanner.SLICE_STEPS = 30;
     function prop(matchName, value, type = 'OneD', options = {}) {
         return {
             matchName,

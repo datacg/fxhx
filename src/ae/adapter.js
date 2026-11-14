@@ -43,11 +43,24 @@ FX.AfterEffectsAdapter.prototype.version = function () {
 FX.AfterEffectsAdapter.prototype.checkForUpdates = function (installed) {
     FX.U.assert(typeof system !== 'undefined' && typeof system.callSystem === 'function',
         'Update checks are unavailable in this host. Open github.com/datacg/fxhx/releases.');
+    FX.U.assert(this.networkAllowed() !== false,
+        'Enable Preferences > Scripting & Expressions > "Allow Scripts to Write Files and Access Network", or use Open Releases.');
     var raw = String(system.callSystem(FX.Updates.checkCommand())).replace(/^\s+|\s+$/g, '');
     if (raw === 'FXHX_NO_RELEASE') { return { unpublished: true }; }
     FX.U.assert(raw !== 'FXHX_UPDATE_ERROR' && raw.length > 0,
         'Could not check GitHub. Check your connection or try again later.');
     return FX.Updates.release(raw, installed);
+};
+// true/false when the host preference is readable; null when unknown.
+FX.AfterEffectsAdapter.prototype.networkAllowed = function () {
+    try {
+        if (typeof app !== 'undefined' && app.preferences &&
+            typeof app.preferences.getPrefAsLong === 'function') {
+            return app.preferences.getPrefAsLong('Main Pref Section',
+                'Pref_SCRIPTING_FILE_NETWORK_SECURITY') === 1;
+        }
+    } catch (ignoredPreference) {}
+    return null;
 };
 FX.AfterEffectsAdapter.prototype.openReleases = function () {
     FX.U.assert(typeof system !== 'undefined' && typeof system.callSystem === 'function',
@@ -58,7 +71,7 @@ FX.AfterEffectsAdapter.prototype.project = function () {
     return app.project;
 };
 FX.AfterEffectsAdapter.prototype.undo = function (label, fn) {
-    app.beginUndoGroup('FX Exchanger - ' + label);
+    app.beginUndoGroup('FXHX - ' + label);
     try {
         return fn();
     } finally {
@@ -1283,15 +1296,20 @@ FX.AfterEffectsAdapter.prototype.writeRows = function (effect, rows, options) {
                 if (authorization) {
                     FX.U.assert(p.numKeys === 0, 'Keyframes remain after conversion to a fixed value');
                 }
+                // Float storage noise (e.g. float32 colors) is accepted;
+                // real rounding or clamping still fails verification.
                 FX.U.assert(
-                    FX.JSON.stringify(observed) ===
-                        FX.JSON.stringify(row.value),
+                    FX.U.sameValue(observed, row.value),
                     'Host normalized, rounded or did not retain requested value'
                 );
             } finally {
                 FX.U.measure(this.diagnostics, 'readback', started, 1);
             }
             item.status = 'Written and Verified';
+            if (FX.JSON.stringify(observed) !== FX.JSON.stringify(row.value)) {
+                item.reason = 'Host stored the value at its own precision: ' +
+                    FX.JSON.stringify(observed);
+            }
             r.verified++;
         } catch (error) {
             r.failed++;
@@ -1379,7 +1397,7 @@ FX.AfterEffectsAdapter.prototype.schedule = function (callbackName, epoch) {
         '(' +
         argument +
         '); }';
-    var id = app.scheduleTask(code, 25, false);
+    var id = app.scheduleTask(code, 10, false);
     this.diagnostics.measure('tasksScheduled', 0, 1);
     return id;
 };

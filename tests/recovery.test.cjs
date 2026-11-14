@@ -326,7 +326,7 @@ test('UI failure before Batch invocation releases busy state without writing or 
         h
             .all(p, 'statictext')
             .find((c) => String(c.text).includes('Edit compatible')) ||
-        h.all(p, 'statictext').find((c) => c.preferredSize.height === 38);
+        h.all(p, 'statictext').find((c) => c.preferredSize.height === 28);
     assert.ok(status);
     let text = status.text;
     Object.defineProperty(status, 'text', {

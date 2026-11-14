@@ -12,7 +12,7 @@ test('release versions compare numerically and match the package version', () =>
     assert.equal(FX.Updates.compare('v0.1.15', '0.1.9'), 1);
     assert.equal(FX.Updates.compare('0.2.0', '0.10.0'), -1);
     assert.equal(FX.Updates.compare('1.0.0', '0.99.999'), 1);
-    assert.equal(FX.Updates.compare('v0.1.15', installed), 0);
+    assert.equal(FX.Updates.compare('v' + installed, installed), 0);
     for (const tag of ['', 'v01.1.0', '1.2', '1.2.3-beta.1', '1.2.3;Start-Process bad', null]) {
         assert.throws(() => FX.Updates.version(tag), /Invalid release version/);
     }
@@ -20,9 +20,10 @@ test('release versions compare numerically and match the package version', () =>
 
 test('only published stable releases from datacg/fxhx are accepted as update data', () => {
     const { FX } = fixture();
-    assert.deepEqual(plain(FX.Updates.release(payload('v0.1.16'), installed)), {
-        available: true, version: '0.1.16', url: 'https://github.com/datacg/fxhx/releases/tag/v0.1.16'
+    assert.deepEqual(plain(FX.Updates.release(payload('v0.1.17'), installed)), {
+        available: true, version: '0.1.17', url: 'https://github.com/datacg/fxhx/releases/tag/v0.1.17'
     });
+    assert.equal(FX.Updates.release(payload('v0.1.16'), installed).available, false);
     assert.equal(FX.Updates.release(payload('v0.1.15'), installed).available, false);
     assert.equal(FX.Updates.release(payload('v0.1.9'), installed).available, false);
     for (const patch of [{ draft: true }, { prerelease: true }, { draft: null },
@@ -37,7 +38,7 @@ test('only published stable releases from datacg/fxhx are accepted as update dat
 });
 
 test('update transport uses a fixed HTTPS endpoint, a timeout and no project data or policy bypass', () => {
-    const commands = [], h = fixture({ system: { callSystem(command) { commands.push(command); return payload('v0.1.16'); } } });
+    const commands = [], h = fixture({ system: { callSystem(command) { commands.push(command); return payload('v0.1.17'); } } });
     assert.equal(commands.length, 0);
     assert.equal(h.adapter.checkForUpdates(installed).available, true);
     assert.equal(commands.length, 1);
@@ -62,14 +63,14 @@ test('unavailable transport, no release, network failures and malformed response
 });
 
 test('opening the panel and Help never checks the network; clicking checks and opens releases independently', () => {
-    const commands = [], h = ui({ hostGlobals: { system: { callSystem(cmd) { commands.push(cmd); return payload('v0.1.16'); } } } });
+    const commands = [], h = ui({ hostGlobals: { system: { callSystem(cmd) { commands.push(cmd); return payload('v0.1.17'); } } } });
     const panel = h.start();
     assert.equal(commands.length, 0);
-    h.dialogHooks['FX Exchanger Help'] = d => {
+    h.dialogHooks['FXHX Help'] = d => {
         assert.equal(commands.length, 0);
         h.click(d, 'Check for updates');
         const status = h.all(d, 'statictext').find(c => c.fxUpdateStatus);
-        assert.match(status.text, /Update available: 0.1.16/);
+        assert.match(status.text, /Update available: 0.1.17/);
         assert.equal(commands.length, 1);
         h.click(d, 'Open Releases');
         assert.equal(commands.length, 2);
@@ -83,7 +84,7 @@ test('opening the panel and Help never checks the network; clicking checks and o
 
 test('failed checks remain retryable, ignore reentry and preserve offline help and diagnostics', () => {
     const h = ui(), panel = h.start(); let calls = 0;
-    h.dialogHooks['FX Exchanger Help'] = d => {
+    h.dialogHooks['FXHX Help'] = d => {
         const check = h.all(d, 'button').find(b => b.text === 'Check for updates');
         h.adapter.checkForUpdates = () => { calls++; check.onClick(); throw Error('Network offline'); };
         h.click(d, 'Check for updates');

@@ -1,8 +1,31 @@
-# Arquitetura — FX Exchanger 0.1.15
+# Arquitetura — FXHX 0.1.16
+
+## Visão atual (0.1.16)
+
+Runtime ES3 no namespace privado `FX`, **26 módulos** em `tools/modules.cjs`, empacotados num único JSX com `#targetengine "fxexchanger"`. Não há dependência de Node ou rede no host.
+
+| Camada | Módulos | Responsabilidade |
+|---|---|---|
+| Núcleo | utils, core/*, configurations/*, filters, grouping, diagnostics, updates, storage/* | Dados, validação, canônico/diff, política de parâmetros, persistência. `FX.U.parseNumber` e `FX.U.sameValue` centralizam a entrada numérica e a comparação com tolerância. |
+| Host | ae/adapter | Único acesso a objetos do AE: leitura, escrita com readback, Undo, scheduler, rede. |
+| Processos | scanner, batch | Jobs em ticks (listar/ler) e planos de escrita revalidados. |
+| UI pura | ui/i18n, ui/layout, ui/activity, ui/presentation, ui/confirmation | Sem estado do painel: tradução, geometria de linhas, fases de trabalho, textos e descrição do lote. Testáveis isoladamente. |
+| Componentes ScriptUI | ui/results, ui/help, ui/valueinput, ui/editor | Recebem fábricas (`createDialog`, `button`, `row`) e callbacks do painel; nunca tocam o host. |
+| Orquestração | ui/panel | Monta o painel, mantém a seleção e liga UI, scanner e batch. |
+
+**Fases (`FX.Activity`).** `idle → listing → reading → idle`, `idle → applying → idle | listing` (refresh automático). `setWorking(fase)`/`setIdle()` mudam a fase e o par Refresh/Cancel juntos. Transições inesperadas são registradas em Diagnostics e aplicadas, para nunca travar o painel. As travas de reentrância de render, seleção e diálogos continuam independentes; migrá-las para fases é o próximo passo, depois da validação no host.
+
+**Idioma.** `FX.I18N.t` traduz rótulos estáticos na criação dos controles. Cada botão guarda a chave em inglês em `fxTitle`, e cada item de dropdown em `fxKey`; lógica e testes usam essas chaves.
+
+**Release.** `tools/host-gate.cjs` exige `docs/validation/ae-host-<versão>.json` com todos os itens do [smoke test](docs/HOST_SMOKE_CHECKLIST.md). Sem ele, só `release:candidate`, que marca `hostValidated: false` no MANIFEST.
+
+Detalhes da mudança: [docs/CHANGES_0.1.16.md](docs/CHANGES_0.1.16.md). As seções abaixo registram as decisões das versões anteriores e continuam válidas onde não foram substituídas.
+
+## Histórico de decisões
 
 Na 0.1.14, o editor retorna somente o lote preparado; Apply não cria intenção de reabertura. O callback agendado de abertura permanece restrito ao pedido inicial de Edit que precisa preparar os dados. Atualização e recuperação da seleção após escrita continuam independentes desse callback. Marcas de pendência/erro são derivadas dos drafts por path; nunca identificam alvos pelo texto exibido. Uma trava de atualização protege notificações de seleção emitidas ao mudar rótulos.
 
-Base imediata da 0.1.12: 0.1.11; histórico anterior preservado. Runtime ES3 em namespace privado FX, 19 módulos em tools/modules.cjs, um JSX independente e targetengine fxexchanger. Build valida cada fonte, corpo e arquivo emitido com Acorn ES3 e lint adicional ExtendScript. Não há dependência Node ou rede no host.
+Base imediata da 0.1.12: 0.1.11; histórico anterior preservado. Runtime ES3 em namespace privado FX, 19 módulos (26 na 0.1.16) em tools/modules.cjs, um JSX independente e targetengine fxexchanger. Build valida cada fonte, corpo e arquivo emitido com Acorn ES3 e lint adicional ExtendScript. Não há dependência Node ou rede no host.
 
 Na 0.1.11, a continuação explícita de set/copy bem-sucedido encadeia Basic → recuperação inequívoca → análise somente dos alvos recuperados. scanner.onDone prepara a segunda fase e o scheduler executa o próximo tick, sem reentrada ou modal. pendingParameterRefresh controla conclusão/cancelamento; Results é independente. Página/foco identificável são preservados. Refresh manual e outras operações não autorizam leitura profunda nova. Não há retry de escrita após falha de atualização.
 
@@ -61,7 +84,7 @@ Batch possui trava de reentrância e invalida globalmente ao terminar, inclusive
 
 Até uma tarefa não repetitiva de scan, callback único por controller, proteção contra reentrância no controller e Scanner. Conclusão não agenda mais; dispose remove callback/observadores e cancela. Falha de scheduler encerra o job lógico; falha nativa de cancelamento é registrada, sem garantia de remoção pelo host. Help e menus fecham antes do próximo diálogo quando não há necessidade de composição modal. Apply/Cancel têm nomes nativos ok/cancel; comportamento real de teclado está pendente.
 
-Métricas agregam Basic/Analysis, etapa/leitura/fingerprint, agrupamento/render/árvore/nós, marcas de seleção, callbacks, tarefas e reaproveitamentos. Tempos de parede e tempos síncronos não são somáveis indiscriminadamente. Nenhuma métrica contém valores, nomes de projeto ou licenças. Ver docs/PERFORMANCE_INVESTIGATION_0.1.2.md.
+Métricas agregam Basic/Analysis, etapa/leitura/fingerprint, agrupamento/render/árvore/nós, marcas de seleção, callbacks, tarefas e reaproveitamentos. Tempos de parede e tempos síncronos não são somáveis indiscriminadamente. Nenhuma métrica contém valores, nomes de projeto ou licenças. Ver docs/history/PERFORMANCE_INVESTIGATION_0.1.2.md.
 
 Tick limita trabalho entre etapas a 30 passos/12 ms; uma chamada síncrona não é preemptada. Inspeção de animação continua explícita, até duas ocorrências, 16 paths na UI e 2.000 keys/path. Layout nativo, docking e Not Responding precisam de evidência real, não inferência dos mocks.
 
@@ -75,16 +98,16 @@ Tick limita trabalho entre etapas a 30 passos/12 ms; uma chamada síncrona não 
 - writeRows distingue preparação, invocação e readback. Retorno de setValue incrementa written antes de ler; igualdade exata incrementa verified. Erro durante invocação gera Unknown, nunca retry. Normalização/rounding gera Verification Failed, sem tolerância arbitrária.
 - Métricas capture/validateOccurrence/prevalidation/setValue/readback/totalBatch/renderTotal/errorRecovery são agregadas, técnicas e protegidas contra falhas do observador. Mensagens/stack de erro podem conter caminhos; não são métricas.
 
-Decisão sobre recaptura e evidências em docs/RELIABILITY_HOTFIX_0.1.3.md.
+Decisão sobre recaptura e evidências em docs/history/RELIABILITY_HOTFIX_0.1.3.md.
 
 ## Fluxo simplificado 0.1.4 e layout 0.1.7
 
 View inicia em occurrences, independentemente do agrupamento antigo salvo. A lista padrão cria apenas folhas individuais comp/layer/índice/efeito, sem Grouping.build; Layers e grupos são opções explícitas. O modo occurrences é transitório e não muda schema de preferências. Ações diretas mantêm Batch/preview/Undo; Read Parameters é o nome de UI para scanner.analyze. Não há Replace genérico.
 
-selectTreeItem guarda item/chave e aceita onChange/click com deduplicação por gesto. Na 0.1.7 refreshMarks só altera texto quando a marca muda, sob trava; erros desabilitam escrita. button não atravessa parent nativo; bindDialogEvents mantém guarda de janela fechada. Histórico em docs/WORKFLOW_AUDIT_0.1.4.md.
+selectTreeItem guarda item/chave e aceita onChange/click com deduplicação por gesto. Na 0.1.7 refreshMarks só altera texto quando a marca muda, sob trava; erros desabilitam escrita. button não atravessa parent nativo; bindDialogEvents mantém guarda de janela fechada. Histórico em docs/history/WORKFLOW_AUDIT_0.1.4.md.
 
 Na 0.1.7, shell é o filho direto removível do host; cabeçalho fixo contém título, espaço expansível e Help. Body usa layout próprio: panel/viewport recorta conteúdo, scrollbar desloca root, e Presentation.viewport/rowWidths calcula geometria pura e quebra de ações. Resize limita offset; Results altera a altura do conteúdo. Wheel é encaminhado apenas quando entregue pelo host; registro recusado não impede inicialização. Árvore e edittexts preservam navegação própria. Dispose impede callbacks antigos de mover o conteúdo.
 
-mainView mostra Effects/Groups/Layer; groupBy interno conserva os modos. onChange nunca abre modais; More → Grouping configura e fecha antes de escolher paths. As travas do hotfix 0.1.6 permanecem, inclusive initializing/viewSyncing/viewChanging/advancedDialogOpen. Fonte/detalhes em docs/BATCH_WORKFLOW_0.1.7.md; validação ScriptUI ainda bloqueada.
+mainView mostra Effects/Groups/Layer; groupBy interno conserva os modos. onChange nunca abre modais; More → Grouping configura e fecha antes de escolher paths. As travas do hotfix 0.1.6 permanecem, inclusive initializing/viewSyncing/viewChanging/advancedDialogOpen. Fonte/detalhes em docs/history/BATCH_WORKFLOW_0.1.7.md; validação ScriptUI ainda bloqueada.
 
 Presets são carregados apenas por ação explícita, em presets.json separado. FX.Store recebe contratos opcionais de basename/validação/default/migração, preservando o padrão de preferências. Library faz clone, valida, salva e só depois publica. Clipboard é snapshot estático transitório com matchName/rows. Add com preset cria uma instância por layer e usa writeRows no mesmo Undo; created contabiliza criação mesmo se parâmetros falharem. Não há rollback/retry de instâncias nem escrita de animação. Inspect Animation adiciona tabela pura de keys aos snapshots explicitamente capturados.

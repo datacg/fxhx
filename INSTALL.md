@@ -1,21 +1,42 @@
-# Instalação — FX Exchanger 0.1.15
+# Instalação — FXHX 0.1.16
 
-Baixe o ZIP ou `FX Exchanger.jsx` em [Releases](https://github.com/datacg/fxhx/releases/latest).
+## Painel encaixável (recomendado)
 
-## Painel dockável no Windows
+1. Feche o painel se ele estiver aberto e guarde uma cópia do JSX anterior, se houver.
+2. Copie `FXHX.jsx` (do ZIP da release ou de `dist/`) para:
+   `C:\Program Files\Adobe\Adobe After Effects <versão>\Support Files\Scripts\ScriptUI Panels\`
+   A pasta Program Files pode pedir permissão de administrador.
+3. Reinicie o After Effects. Se o AE já estava aberto, salve o trabalho antes: o engine de scripts pode manter a versão antiga na memória até reiniciar.
+4. Abra **Window > FXHX.jsx** e encaixe o painel onde preferir.
+5. Confira a versão em **Help**: deve mostrar 0.1.16.
 
-1. Feche o painel e preserve uma cópia do JSX anterior, se houver.
-2. Extraia o ZIP e copie somente `FX Exchanger.jsx` para `Scripts\ScriptUI Panels` dentro da pasta de instalação do After Effects.
-3. Uma instalação padrão usa `%ProgramFiles%\Adobe\Adobe After Effects 2026\Support Files\Scripts\ScriptUI Panels`. Ajuste o ano e a pasta conforme sua instalação. Copiar para Program Files pode exigir permissão de administrador.
-4. Abra o After Effects e escolha **Window → FX Exchanger.jsx**.
-5. Confira **0.1.15 em Help**. Se o painel conservar código antigo, salve o trabalho e reinicie o After Effects manualmente.
+## Atualizando de uma versão chamada "FX Exchanger" (até 0.1.15)
 
-Também é possível executar o JSX por **File → Scripts → Run Script File...** para abrir uma palette. Esse modo não verifica o comportamento dockável.
+O arquivo passou a se chamar `FXHX.jsx`. **Apague o `FX Exchanger.jsx` antigo** de `ScriptUI Panels`; senão o menu Window mostra os dois painéis. Preferências e presets continuam em `%APPDATA%\FXExchanger\` e são reaproveitados automaticamente.
 
-O painel funciona sem Node.js ou npm. A consulta opcional de atualizações usa Windows PowerShell e acesso à internet. Se a consulta falhar, a edição continua disponível e a página de Releases pode ser aberta no navegador.
+## Executar uma vez, sem instalar
 
-## Atualizar
+**File > Scripts > Run Script File...** e escolha o JSX. Ele abre como janela flutuante. Para usar encaixado, instale como acima.
 
-Em **Help → Check for updates**, consulte a última Release estável. **Open Releases** abre o download. Feche o painel, substitua o JSX instalado e reabra. A atualização não substitui o arquivo automaticamente.
+## Preferências do After Effects
 
-Esta versão tem testes automatizados em mocks. A validação dentro do After Effects permanece pendente; consulte [VALIDATION.md](VALIDATION.md) e [docs/UI_QA.md](docs/UI_QA.md).
+- **Check for updates** precisa de *Edit > Preferences > Scripting & Expressions > Allow Scripts to Write Files and Access Network*. Sem essa opção, o painel avisa e **Open Releases** continua funcionando. A verificação pode pausar o AE por alguns segundos.
+- Presets e preferências também precisam de permissão de escrita. Eles ficam em `%APPDATA%\FXExchanger\` (`state.json` e `presets.json`, com backups automáticos).
+
+## Idioma
+
+A interface segue o idioma do After Effects. Para forçar: defina a variável de ambiente `FXHX_LANG=pt` ou `FXHX_LANG=en` e reinicie o AE.
+
+## Problemas comuns
+
+| Sintoma | O que fazer |
+|---|---|
+| O painel não aparece em Window | Confira se o arquivo está em `ScriptUI Panels` (não em `Scripts`) e reinicie o AE. |
+| A versão em Help continua antiga | Reinicie o After Effects; o engine guarda o script anterior. |
+| "Network access is off" | Ative a preferência de scripts acima ou use Open Releases. |
+| Uma operação mostra "Unknown" ou "Verification Failed" | Abra **Results...**, confira no Effect Controls, use Ctrl+Z se necessário e clique em **Refresh** antes de repetir. O painel nunca repete escritas incertas sozinho. |
+| Precisa reportar um problema | **Help > Diagnostics...** salva um log técnico, sem valores do projeto nem dados de licença. Revise os caminhos antes de compartilhar. |
+
+## Desinstalar
+
+Apague `FXHX.jsx` de `ScriptUI Panels` e, se quiser, a pasta `%APPDATA%\FXExchanger\`.

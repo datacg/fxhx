@@ -122,7 +122,7 @@ test('header uses an expanding spacer and a right aligned Help with version outs
             .some(
                 (t) =>
                     t.text ===
-                    'FX Exchanger ' + require('../package.json').version
+                    'FXHX ' + require('../package.json').version
             )
     );
     assert.equal(
@@ -218,8 +218,8 @@ test('visible View is simple; optional groups can be enabled and cancelled witho
     const p = h.start();
     h.scan(p);
     const controls = h.all(p, 'dropdownlist'),
-        main = controls[2];
-    assert.equal(controls[1].visible, false);
+        main = controls[1];
+    assert.equal(controls.length, 2, 'only Scope and View; grouping mode is data');
     assert.equal(main.items.length, 3);
     h.adapter.capture = () => {
         throw Error('View must not analyze');
@@ -230,7 +230,7 @@ test('visible View is simple; optional groups can be enabled and cancelled witho
     };
     h.pick(p, h.results(p).items[0]);
     h.more(p, 'Grouping...');
-    assert.equal(controls[1].selection.index, 2);
+    assert.equal(h.grouping(p).selection.index, 2);
     h.dialogHooks['Grouping'] = (d) => h.click(d, 'Cancel');
     h.more(p, 'Grouping...');
     assert.equal(main.selection.index, 1);
@@ -244,14 +244,14 @@ test('unsafe advanced parameter grouping restores the prior usable view', () => 
     h.glow();
     const p = h.start();
     h.scan(p);
-    const main = h.all(p, 'dropdownlist')[2];
+    const main = h.all(p, 'dropdownlist')[1];
     h.dialogHooks['Grouping'] = (d) => {
         h.all(d, 'dropdownlist')[0].selection = 4;
         h.click(d, 'Use view');
     };
     h.pick(p, h.results(p).items[0]);
     h.more(p, 'Grouping...');
-    assert.equal(h.all(p, 'dropdownlist')[1].selection.index, 7);
+    assert.equal(h.grouping(p).selection.index, 7);
     assert.equal(main.selection.index, 0);
     assert.equal(h.results(p).items.length, 18);
 });

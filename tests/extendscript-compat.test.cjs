@@ -32,13 +32,13 @@ test('all modules and the actual final JSX pass ES3 and extra ExtendScript valid
         );
     }
     const bundle = fs.readFileSync(
-        path.join(root, 'dist/FX Exchanger.jsx'),
+        path.join(root, 'dist/FXHX.jsx'),
         'utf8'
     );
     assert.ok(bundle.includes('#targetengine "fxexchanger"'));
     const modules = require('../tools/modules.cjs');
     const expected =
-        '\uFEFF// FX Exchanger ' +
+        '\uFEFF// FXHX ' +
         require('../package.json').version +
         ' \u2014 generated; edit src.\n#target aftereffects\n#targetengine "fxexchanger"\n' +
         '(function(host){\nvar FX={};\n' +

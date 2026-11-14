@@ -102,15 +102,17 @@ function ui(options = {}) {
             if (this.text === 'Confirm changes') {
                 confirmations.push(
                     this.children
-                        .filter(
-                            (x) =>
-                                x.type === 'statictext' || x.type === 'edittext'
+                        .flatMap((x) =>
+                            x.type === 'statictext' || x.type === 'edittext'
+                                ? [x.text]
+                                : x.type === 'listbox' && x.fxChangeTable
+                                  ? x.items.map((i) => i.text + ': ' + i.subItems[0].text + ' -> ' + i.subItems[1].text)
+                                  : []
                         )
-                        .map((x) => x.text)
                         .join('\n')
                 );
                 const partial = this.children.find(
-                    (x) => x.type === 'checkbox' && x.text === 'I agree to apply only compatible occurrences.'
+                    (x) => x.type === 'checkbox' && x.text === 'I understand: only compatible effects will change.'
                 );
                 if (partial && acceptPartial) {
                     partial.value = true;
@@ -125,7 +127,7 @@ function ui(options = {}) {
                 }
                 const apply = this.children
                     .flatMap((x) => x.children)
-                    .find((x) => x.text === 'Apply');
+                    .find((x) => x.fxTitle === 'Apply');
                 this.close(accept && apply.enabled ? 1 : 0);
                 return this.closeCode;
             }
@@ -192,7 +194,8 @@ function ui(options = {}) {
             .filter(Boolean);
     }
     function click(root, title) {
-        const b = all(root, 'button').find((x) => x.text === title);
+        const b = all(root, 'button').find((x) => x.text === title) ||
+            all(root, 'button').find((x) => x.fxTitle === title);
         assert.ok(b, 'Button ' + title);
         assert.equal(b.enabled, true);
         b.onClick();
@@ -206,7 +209,7 @@ function ui(options = {}) {
             presetStore: options.presetStore
         });
         if (options.grouped) {
-            const view = all(p, 'dropdownlist')[1];
+            const view = grouping(p);
             view.selection = 2;
             view.onChange();
         }
@@ -227,8 +230,19 @@ function ui(options = {}) {
         }
         assert.ok(n > 0);
     }
+    // Stand-in for the former hidden grouping dropdown.
+    function grouping(p) {
+        const c = p.fxController;
+        return {
+            get selection() { return { index: c.groupMode() }; },
+            set selection(v) { c.setGroupMode(typeof v === 'number' ? v : v.index); },
+            onChange() { c.groupChanged(); },
+            visible: false
+        };
+    }
     return {
         ...h,
+        grouping,
         windows,
         alerts,
         confirmations,
@@ -277,7 +291,7 @@ function ui(options = {}) {
             tree.onChange();
             p.fxController.analyze();
             drain(p);
-            const g = all(p, 'dropdownlist')[1];
+            const g = grouping(p);
             g.selection = 0;
             g.onChange();
             dialogHooks['More Actions'] = (d) => click(d, 'Clear Selection');

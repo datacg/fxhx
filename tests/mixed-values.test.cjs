@@ -69,11 +69,11 @@ test('Radius 200/100 to 150 requires the whole selection and reviews both previo
         assert.match(control(h, d, 'edittext', 'fxPreviousValues').text, /200 \(1\); 100 \(1\)/);
         h.click(d, 'View targets');
         const field = h.parameterFields(d)[0]; field.text = '150'; field.onChanging();
-        assert.equal(h.all(d, 'button').find(b => b.text === 'Apply').enabled, false);
+        assert.equal(h.all(d, 'button').find(b => b.fxTitle === 'Apply').enabled, false);
         assert.ok(h.all(d, 'statictext').some(c => /Remove keyframes for this parameter/.test(c.text)));
         removal(h, d);
         assert.equal(item.subItems[2].text, '2/2');
-        assert.equal(h.all(d, 'button').find(b => b.text === 'Apply').enabled, true);
+        assert.equal(h.all(d, 'button').find(b => b.fxTitle === 'Apply').enabled, true);
         const pending = control(h, d, 'listbox', 'fxPendingChanges').items[0];
         assert.equal(pending.subItems[0].text, '200 (1); 100 (1) -> 150');
         h.click(d, 'Apply');

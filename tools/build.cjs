@@ -30,25 +30,25 @@ const body =
     '\nFX.UI.start(host);\n}(this));\n';
 check(body, 'final JSX body');
 const bundle =
-    '// FX Exchanger ' +
+    '// FXHX ' +
     require('../package.json').version +
     ' — generated; edit src.\n#target aftereffects\n#targetengine "fxexchanger"\n' +
     body;
 fs.mkdirSync(path.join(root, 'dist'), { recursive: true });
 fs.writeFileSync(
-    path.join(root, 'dist', 'FX Exchanger.jsx'),
+    path.join(root, 'dist', 'FXHX.jsx'),
     '\uFEFF' + bundle,
     'utf8'
 );
 check(
     fs
-        .readFileSync(path.join(root, 'dist', 'FX Exchanger.jsx'), 'utf8')
+        .readFileSync(path.join(root, 'dist', 'FXHX.jsx'), 'utf8')
         .replace(/^\uFEFF/, '')
         .replace(/^#.*$/gm, ''),
     'emitted JSX'
 );
 console.log(
-    'Built and statically validated dist/FX Exchanger.jsx (' +
+    'Built and statically validated dist/FXHX.jsx (' +
         Buffer.byteLength(bundle) +
         ' bytes)'
 );

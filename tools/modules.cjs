@@ -15,8 +15,14 @@ module.exports = [
     'ae/adapter.js',
     'scanner/scanner.js',
     'batch/batch.js',
+    'ui/i18n.js',
+    'ui/layout.js',
+    'ui/activity.js',
     'ui/presentation.js',
+    'ui/confirmation.js',
     'ui/results.js',
+    'ui/help.js',
+    'ui/valueinput.js',
     'ui/editor.js',
     'ui/panel.js'
 ];

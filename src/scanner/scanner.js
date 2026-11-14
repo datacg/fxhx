@@ -142,7 +142,7 @@ FX.Scanner.prototype.tick = function () {
     }
     this.ticking = true;
     var job = this.job,
-        deadline = FX.U.now() + 12,
+        deadline = FX.U.now() + FX.Scanner.SLICE_MS,
         count = 0,
         event,
         item,
@@ -153,7 +153,7 @@ FX.Scanner.prototype.tick = function () {
         stepStarted,
         readStarted;
     try {
-        while (count < 30 && FX.U.now() < deadline) {
+        while (count < FX.Scanner.SLICE_STEPS && FX.U.now() < deadline) {
             stepStarted = FX.U.now();
             if (job.phase === 'basic') {
                 if (job.cursor.done) {
@@ -376,6 +376,56 @@ FX.Scanner.prototype.invalidate = function () {
         this.basic.stale = true;
     }
 };
+// After a successful write that cannot add, remove or reorder effects (set,
+// copy, enable, disable), the Basic snapshot still describes the project:
+// same layers, same effect stacks. Reusing it avoids relisting the whole scope.
+// `effects` are the written targets: their stacks are re-checked against the
+// host and `enabled` is re-read; configurations for them are dropped so they
+// are read again explicitly. Returns false (snapshot stays stale) when
+// anything does not match, so the caller falls back to a full Basic scan.
+FX.Scanner.prototype.reuseAfterWrite = function (project, effects) {
+    var base = this.basic, i, record, layers = {}, layer, target, enabled, checked = {};
+    if (this.job || !base || base.project !== project || base.project !== this.adapter.project()) {
+        return false;
+    }
+    for (i = 0; i < base.layers.length; i++) {
+        layers['$' + FX.Model.layerKey(base.layers[i])] = base.layers[i];
+    }
+    var byKey = {};
+    for (i = 0; i < base.instances.length; i++) {
+        byKey['$' + FX.Model.effectKey(base.instances[i])] = base.instances[i];
+    }
+    var updates = [];
+    try {
+        for (i = 0; i < effects.length; i++) {
+            record = byKey['$' + FX.Model.effectKey(effects[i])];
+            layer = layers['$' + FX.Model.layerKey(effects[i])];
+            if (!record || !layer) {
+                return false;
+            }
+            if (!checked['$' + FX.Model.layerKey(layer)]) {
+                this.adapter.validateLayer(layer, true);
+                checked['$' + FX.Model.layerKey(layer)] = true;
+            }
+            target = this.adapter.resolve(record);
+            enabled = target.effect.canSetEnabled ? !!target.effect.enabled : true;
+            updates.push([record, enabled]);
+        }
+    } catch (changed) {
+        this.adapter.diagnostics.add('scanner', '', 'reuse-after-write refused');
+        return false;
+    }
+    for (i = 0; i < updates.length; i++) {
+        updates[i][0].enabled = updates[i][1];
+        delete this.configurations['$' + FX.Model.effectKey(updates[i][0])];
+    }
+    base.stale = false;
+    this.result = base;
+    this.analysisRevision++;
+    this.inventoryCache = null;
+    this.adapter.diagnostics.add('scanner', '', 'reuse-after-write; effects=' + updates.length);
+    return true;
+};
 FX.Scanner.prototype.current = function () {
     FX.U.assert(
         this.basic &&
@@ -422,3 +472,8 @@ FX.Scanner.prototype.inventory = function () {
     );
     return out;
 };
+// Work per scheduler tick. 40 ms keeps the panel responsive while needing
+// about 3x fewer AE idle callbacks than the former 12 ms / 30 steps; a single
+// slow host call still cannot be interrupted.
+FX.Scanner.SLICE_MS = 40;
+FX.Scanner.SLICE_STEPS = 150;

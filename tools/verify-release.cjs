@@ -4,7 +4,7 @@ const fs = require('node:fs'),
     { spawnSync } = require('node:child_process');
 const root = path.resolve(__dirname, '..'),
     version = require('../package.json').version;
-const zip = path.join(root, 'release', 'FX-Exchanger-' + version + '.zip');
+const zip = path.join(root, 'release', 'FXHX-' + version + '.zip');
 const listing = spawnSync('tar.exe', ['-tf', zip], {
     encoding: 'utf8',
     windowsHide: true
@@ -13,15 +13,15 @@ if (listing.status !== 0)
     throw Error('Windows tar could not read ZIP: ' + listing.stderr);
 const names = listing.stdout.trim().split(/\r?\n/);
 const allowed = [
-    'FX Exchanger.jsx',
+    'FXHX.jsx',
     'README.md',
     'INSTALL.md',
     'USER_GUIDE.md',
     'CHANGELOG.md',
     'VALIDATION.md',
     'docs/UI_QA.md',
-    'docs/MIXED_VALUES_0.1.15.md',
-    'docs/UPDATE_CHECK_0.1.15.md',
+    'docs/HOST_SMOKE_CHECKLIST.md',
+    'docs/CHANGES_0.1.16.md',
     'MANIFEST.json'
 ];
 if (
@@ -49,7 +49,7 @@ if (extracted.status !== 0)
 const manifest = JSON.parse(
     fs.readFileSync(path.join(directory, 'MANIFEST.json'), 'utf8')
 );
-if (manifest.product !== 'FX Exchanger' || manifest.version !== version)
+if (manifest.product !== 'FXHX' || manifest.version !== version)
     throw Error('Wrong manifest identity');
 if (names.length !== Object.keys(manifest.files).length + 1)
     throw Error('Unexpected entries');
@@ -62,8 +62,8 @@ for (const [name, expected] of Object.entries(manifest.files)) {
 }
 if (
     !fs
-        .readFileSync(path.join(directory, 'FX Exchanger.jsx'))
-        .equals(fs.readFileSync(path.join(root, 'dist/FX Exchanger.jsx')))
+        .readFileSync(path.join(directory, 'FXHX.jsx'))
+        .equals(fs.readFileSync(path.join(root, 'dist/FXHX.jsx')))
 )
     throw Error('Distributed JSX differs from build');
 console.log(
@@ -72,3 +72,8 @@ console.log(
         ' entries)'
 );
 console.log(path.relative(root, zip));
+console.log(
+    manifest.hostValidated
+        ? 'Host validation recorded for ' + version + '.'
+        : 'CANDIDATE: not validated in After Effects. Do not publish as a release.'
+);

@@ -6,10 +6,10 @@ test('default view shows individual occurrences and Help has no fake icon or sel
     const h = ui();
     h.glow();
     const p = h.start();
-    assert.equal(h.all(p, 'dropdownlist')[1].selection.index, 7);
+    assert.equal(h.grouping(p).selection.index, 7);
     assert.ok(!h.all(p, 'button').some((b) => b.text === '? Help'));
     h.click(p, 'Help');
-    assert.ok(h.windows.some((w) => w.text === 'FX Exchanger Help'));
+    assert.ok(h.windows.some((w) => w.text === 'FXHX Help'));
     h.scan(p);
     const tree = h.results(p);
     assert.equal(tree.items.length, 18);
@@ -22,10 +22,7 @@ test('default view shows individual occurrences and Help has no fake icon or sel
         )
     );
     assert.match(tree.items[0].text, /Main \/ Text 0 \/ 1. Glow/);
-    assert.equal(
-        h.all(p, 'button').find((b) => b.text === 'Parameters...').visible,
-        false
-    );
+    assert.ok(!h.all(p, 'button').some((b) => b.text === 'Parameters...'));
 });
 
 test('button callbacks do not traverse inaccessible native parents', () => {
@@ -37,7 +34,7 @@ test('button callbacks do not traverse inaccessible native parents', () => {
         }
     });
     h.click(p, 'Help');
-    assert.ok(h.windows.some((w) => w.text === 'FX Exchanger Help'));
+    assert.ok(h.windows.some((w) => w.text === 'FXHX Help'));
     assert.equal(h.alerts.length, 0);
     assert.ok(
         !p.fxController.diagnostics.text().includes('native parent unavailable')
@@ -194,7 +191,7 @@ test('direct Add Effect targets a layer without effects and lets host incompatib
         l = c.addLayer(),
         p = h.start();
     h.scan(p);
-    const view = h.all(p, 'dropdownlist')[1];
+    const view = h.grouping(p);
     view.selection = 6;
     view.onChange();
     const tree = h.results(p),

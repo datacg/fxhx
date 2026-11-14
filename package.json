@@ -1,6 +1,6 @@
 {
   "name": "fx-exchanger",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "private": true,
   "description": "Find, compare and modify After Effects configurations in precise batches",
   "scripts": {
@@ -8,7 +8,8 @@
     "test": "node --test tests/*.test.cjs",
     "check": "npm run build && npm test",
     "host:prepare": "node tools/prepare-ae-smoke.cjs",
-    "release": "npm run check && node tools/release.cjs && node tools/verify-release.cjs"
+    "release": "npm run check && node tools/release.cjs && node tools/verify-release.cjs",
+    "release:candidate": "npm run check && node tools/release.cjs --candidate && node tools/verify-release.cjs"
   },
   "engines": {
     "node": ">=18"

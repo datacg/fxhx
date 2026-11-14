@@ -40,6 +40,6 @@ FX.Updates = (function () {
     function browserCommand() {
         return 'powershell.exe -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -Command "Start-Process \'' + latest + '\'"';
     }
-    return { installed: '0.1.15', repository: repository, latest: latest, endpoint: endpoint, version: version,
+    return { installed: '0.1.16', repository: repository, latest: latest, endpoint: endpoint, version: version,
         compare: compare, release: release, checkCommand: checkCommand, browserCommand: browserCommand };
 })();

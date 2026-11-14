@@ -1,5 +1,7 @@
 FX.Store = function (directory, options) {
     options = options || {};
+    // Data identifiers keep the original name (folder, product fields) so
+    // existing preferences and presets survive the FXHX rename.
     this.dir = directory || new Folder(Folder.userData.fsName + '/FXExchanger');
     this.baseName = options.baseName || 'state.json';
     FX.U.assert(

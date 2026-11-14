@@ -195,11 +195,26 @@ FX.Batch.prototype._execute = function (plan) {
         plan.scanId === scan.id && plan.project === scan.project,
         'Scan is no longer current'
     );
-    for (i = 0; i < scan.layers.length; i++) {
-        layerIndex['$' + FX.Model.layerKey(scan.layers[i])] = FX.U.clone(
-            scan.layers[i]
-        );
+    // Only the layers this plan touches are needed (cloning the whole scope
+    // was a measurable cost on large projects).
+    var wanted = {};
+    for (i = 0; i < plan.targets.length; i++) {
+        wanted['$' + FX.Model.layerKey(plan.targets[i])] = true;
     }
+    for (i = 0; i < scan.layers.length; i++) {
+        key = '$' + FX.Model.layerKey(scan.layers[i]);
+        if (wanted[key]) {
+            layerIndex[key] = FX.U.clone(scan.layers[i]);
+        }
+    }
+    // Operations that never add or remove effects. Their targets were fully
+    // captured and compared during prevalidation in this same synchronous
+    // call. A second full capture right before writing is only needed when an
+    // earlier write in this batch touched the same layer (a plugin setter can
+    // change sibling effects); otherwise it repeats the same read.
+    var nonStructural = FX.U.contains(['set', 'copy', 'enable', 'disable'], plan.operation),
+        prevalidated = {},
+        touchedLayers = {};
     var prevalidationStarted = FX.U.now();
     try {
         // All targets must pass before any write. Read neighbours' structure only.
@@ -224,6 +239,7 @@ FX.Batch.prototype._execute = function (plan) {
             key = '$' + FX.Model.layerKey(t);
             if (plan.operation !== 'apply' && !blocked[key]) {
                 var checked = this.adapter.validateOccurrence(t, layerIndex[key]);
+                prevalidated['$' + FX.Model.effectKey(t)] = true;
                 this.adapter.validateKeyframeRemoval(checked.effect,
                     (plan.keyframeRemovals || {})['$' + FX.Model.effectKey(t)] || []);
                 if (plan.options.requireAll) {
@@ -319,10 +335,12 @@ FX.Batch.prototype._execute = function (plan) {
                                 );
                             }
                         } else {
-                            current = self.adapter.validateOccurrence(
-                                t,
-                                layerIndex[key]
-                            );
+                            // The layer stack was re-checked just above.
+                            current = nonStructural && prevalidated['$' + FX.Model.effectKey(t)] &&
+                                !touchedLayers[key]
+                                ? self.adapter.resolve(t)
+                                : self.adapter.validateOccurrence(t, layerIndex[key]);
+                            touchedLayers[key] = true;
                             FX.U.assert(
                                 !current.layer.locked,
                                 'Layer became locked'

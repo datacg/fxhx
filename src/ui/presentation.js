@@ -226,6 +226,10 @@ FX.Presentation = (function () {
                 r.reasons.push('incompatible control options or ranges');
             }
             if (r.row && r.control) { r.row.control = FX.U.clone(r.control); }
+            // Presentation hint only: values stay numeric 0/1 when written.
+            r.toggle = !r.unknownValues && FX.Parameters.isToggle(r.row, r.values,
+                instances.length ? instances[0].matchName : null);
+            if (r.row && r.toggle) { r.row.toggle = true; }
             r.category = 'Cannot edit safely';
             if (r.safe) {
                 r.category =
@@ -336,7 +340,7 @@ FX.Presentation = (function () {
         var out = {
                 action: 'none',
                 message:
-                    'Select an effect occurrence, or choose View > Layer to add an effect.',
+                    'Select an effect, or choose View > Layers to add an effect to a layer.',
                 same: true,
                 analyzed: true
             },
@@ -345,7 +349,7 @@ FX.Presentation = (function () {
             j, states, properties, config, profile;
         if (!fresh) {
             out.action = 'scan';
-            out.message = 'Choose a composition and scan its effects.';
+            out.message = 'Choose a scope, then press Search (or Enter) to list its effects.';
             return out;
         }
         for (i = 0; i < selection.instances.length; i++) {
@@ -403,47 +407,43 @@ FX.Presentation = (function () {
     var help = [
         [
             'Start',
-            'Choose Active Composition, Choose Compositions or Entire Project. Search or Enter creates a Basic inventory when missing or outdated; Scan explicitly refreshes it. Basic reads existing effect identities only. Opening the panel starts no scan or task.'
+            '1. Pick a Scope: Active Composition, Choose Compositions or Entire Project.\n2. Type an effect, layer or composition name in Find and press Enter (or Search). The first search lists the effects in the scope; later searches filter that list instantly.\n3. Refresh updates the list after you change the project. Cancel (same place) stops a running update.\n\nOpening the panel reads nothing. Parameter values are only read when you ask for them.'
         ],
         [
-            'Find and edit',
-            'Search with Search or Enter, select effects of the same type and click Edit Parameters. That action reads only the selected effects when needed, then opens the editor. Fill several values and Apply once; the editor closes before confirmation and Batch. Successful edits refresh and reread only safely recovered targets. The editor stays closed; click Edit Parameters again to continue with updated values. Cancelled confirmation preserves the draft. Untouched fields never produce writes. More > Read Parameters provides inspection without opening the editor.'
+            'Edit parameters',
+            'Select one or more effects of the same type and click Edit Parameters....\n\nLeft: find a parameter by name or value; filter Editable, Has keyframes, Pending changes or Unavailable.\nRight: the selected parameter, its current values and the New value field. Vectors show X/Y/Z; colors show R/G/B/A from 0 to 1, a hex field and Pick... for the system color picker. On/off parameters show a checkbox; Number... edits them as a number and Checkbox switches back. Decimal commas are accepted (20,5).\nBottom: every pending change. Apply N changes sends them in one batch after a confirmation that lists each parameter, its current values and the new value.\n\n* marks a pending change, ! a value to correct. Leave a field blank to keep each effect\'s value. Each pending change must apply to every selected effect; otherwise Apply is blocked and View targets explains why.'
+        ],
+        [
+            'Keyframes',
+            'Keyframes are never removed unless you check Remove keyframes for that parameter and confirm again with the key count. With the box checked, a blank value keeps each current value as a fixed value; a new value replaces all of them. Expressions, locked layers and protected fields are never changed. Inspect Animation... (More) is read-only.'
         ],
         [
             'Selection',
-            'Selected results use the native highlight color on every selected row. Click replaces the work selection. Ctrl-click toggles one occurrence, layer or group. Shift-click selects a range of visible rows of the same kind; Ctrl+Shift adds that range. [x] marks selected members; [-] marks partially selected groups; [ ] is unselected. Only marked results matching the current filters are operated on. Double-click a group, or use Left/Right, to collapse/expand it. Select Results explicitly selects matching results across pages. Clear Selection removes all choices, including hidden ones. More... > Selection... offers Select All and Invert Selection.'
+            'Click selects one result. Ctrl-click adds or removes; Shift-click selects a range; Ctrl+Shift adds a range. [x] marks selected rows, [-] a partially selected group. Select Results selects everything that matches the current search, including other pages. Double-click a group (or Left/Right) to collapse or expand it. Actions only use selected results that match the current search and filters.'
         ],
         [
-            'Groups and layers',
-            'View lists Effects, Groups, then Layer. Groups compares occurrences by configuration after Read Parameters, never a set of different effects. More... > Grouping... chooses configuration, layer type or selected-parameter grouping without opening dialogs on View changes. Matching settings requires full comparable coverage; Readable settings match / Partial contains unknown data, including animation. Not analyzed is not equality. Decorative/blank instance names display matchName; Details preserves the original and can explicitly look up its registered name. Previous/Next displays 200 records per page; group selection may include off-page members shown in the counter and confirmation.'
-        ],
-        [
-            'Editor',
-            'Find parameter filters words in memory. Filters include Editable, Has keyframes, Pending changes and Unavailable. * marks a pending change; ! marks an invalid value that must be corrected before Apply. The parameter title repeats this state. Search preserves all pending edits; review the pending table and apply several parameters in one batch. Previous values includes static and keyframed current values with effect counts; View targets shows each value. Pending changes and confirmation show previous -> new values. Every pending parameter must apply to all selected effects; otherwise Apply is blocked with guidance. Dropdowns use host option names when available (AE 26+) or a verified compatibility profile; unknown options are never invented. View targets explains each occurrence. Clear this change / Clear all changes only discard pending edits. Keyframe removal includes single keys, is OFF by default and requires separate final consent. With removal checked, blank / Keep original clears keys and retains each current value; entering a value replaces every selected value. Expressions, locks, host Compositing Options, known internal fields and opaque data remain protected. AI Color Match exposes only verified Intensity. Cancel writes nothing.'
+            'Views and groups',
+            'View > Effects lists each effect. Groups compares effects of the same type by their parameter values (read them first with More > Read Parameters). Layers also lists layers without effects, for Add Effect.... More > Grouping... chooses how groups are formed. Lists longer than 200 rows have Previous/Next pages.'
         ],
         [
             'Copy and presets',
-            'More > Copy Parameters... chooses an analyzed source and static rows for a frozen session clipboard. Select analyzed destinations of the same matchName and use Paste Parameters...; confirmation precedes writes. Save Effect Preset... stores those chosen rows for one effect, with omissions explicit. Presets... edits values, renames, deletes and imports/exports the data-only JSON library with backups and conflict checks. Apply to selected effects uses matching types only. Add Effect... > Saved presets creates NEW instances and sets their static rows; it does not replace existing effects. A failed write may leave the newly created instance: inspect Results before retrying. Presets do not contain sets, expressions or animation.'
+            'More > Copy Parameters... copies chosen static values; select effects of the same type and use Paste Parameters.... Copy From Another Effect... applies values from a reference effect. Save Effect Preset... stores chosen values; Presets... edits (several values per save), renames, imports and exports them. Add Effect... > Saved presets adds a NEW effect with those values; existing effects are not replaced. Presets never contain animation or expressions.'
         ],
         [
             'More actions',
-            'More... has direct buttons, closes before a work dialog, and requires applicable targets. Copy Settings From... prefers analyzed reference data; Effect Controls reference explicitly reads the selected AE effect. Compare... supports selected static differences A/B. Enable, Disable and Add Effect are direct actions. Remove remains in More. All mutations require confirmation. Layers that cannot host effects are refused safely. Enabled is not a license command. Remove deletes entire effects including animation. Details preserves the original instance name and technical identity.'
+            'Enable, Disable and Add Effect... are on the panel. More... holds the rest: Read Parameters, Copy/Paste Parameters, Compare..., Inspect Animation..., Remove Effects, Selection..., Grouping..., Details... and Diagnostics.... Every change asks for confirmation; Enter in a confirmation cancels, so applying always needs a click.'
         ],
         [
-            'Refresh and safety',
-            'Successful operations refresh Basic identities and preserve Results. Successful parameter edits/copies also reread only safely recovered edited effects, as part of that edit request; other effects are not analyzed. Manual Scan/Refresh remains Basic only. Cancelling the follow-up update does not undo applied values. Read failure preserves Results and requires explicit recovery; uncertain writes never trigger automatic retry. Target identity, locks, expressions and protected fields are still checked. Keyframes are preserved unless removal is explicitly confirmed. Undo is one group per operation; failures may be partial.'
-        ],
-        [
-            'Animation',
-            'Inspect Animation... is read-only and explicitly reads chosen paths of one or two occurrences. Its table lists time, value and curve with supported ease/interpolation/spatial details. Edit Parameters can explicitly remove ALL keyframes of a chosen supported numeric parameter and apply a fixed value or keep each current value. A single keyframe can also be cleared. It does not move or change individual keys, copy animation or remove expressions. A separate final consent shows key counts. Unknown is never Static.'
+            'Safety and Undo',
+            'Every operation is one Undo step (Edit > Undo). Before writing, every target is checked again; after writing, each value is read back. Values that After Effects stores at its own precision (for example colors) are accepted; real rounding or clamping is reported. Uncertain writes are never retried automatically: open Results... and Refresh before trying again. After a successful edit the list is kept and only the edited effects are read again; Remove and Add Effect relist the scope.'
         ],
         [
             'Troubleshooting',
-            'Cancel removes queued work, but a synchronous host call cannot be interrupted until it returns. Locate chooses one Timeline composition. Help > Diagnostics... works without selection. No licensing data is requested or activation test run. Licensing prompts and host stalls have no established cause. Short docks have a vertical scrollbar; Page Up/Down works outside text fields and the results list. Wheel forwarding depends on host event delivery; the results list keeps native scrolling. Version is inside Help and Diagnostics. Native docking/layout and commercial testing remain pending.'
+            'After Effects can pause while a long operation runs; the progress bar shows how far it got. Check for updates needs Preferences > Scripting & Expressions > Allow Scripts to Write Files and Access Network and may pause AE for a few seconds; Open Releases always works. Locate selects the layer in one Timeline. Help > Diagnostics... lists technical events for bug reports; it contains no project values or license data.'
         ],
         [
-            'Glow: 18 effects',
-            'Search Glow, Select Results, Read Parameters. Choose Groups (default Configuration / layer type): Text Intensity 50 (3), Adjustment 6 (12), Adjustment 7 (3). Select only group 7, Edit Parameters..., type Intensity 6, Apply and confirm. Basic Refresh runs after successful changes. Read Parameters explicitly to regroup new configurations. Radius and Text remain unchanged. Values come from the project, not this example.'
+            'Example: 18 Glows',
+            'Find: Glow, Enter. Select Results. View > Groups, then More > Read Parameters: groups show Intensity 50 (3), 6 (12), 7 (3). Click group 7, Edit Parameters..., set Intensity to 6, Apply 1 change, Apply to 3 effects. The list refreshes; Radius and other effects stay unchanged.'
         ]
     ];
     // Pure geometry: make overflow explicit instead of relying on a dock's minimum size.
@@ -455,7 +455,8 @@ FX.Presentation = (function () {
                 action = results && wrap ? 60 : 28,
                 direct = wrap ? 60 : 28,
                 sections = 5,
-                fixed = 170 + 34 + 28 + action + direct + 12;
+                // 3 control rows (3 x 32) + status and progress (42).
+                fixed = 138 + 34 + 28 + action + direct + 12;
             if (pager) {
                 fixed += 28;
                 sections++;

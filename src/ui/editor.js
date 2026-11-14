@@ -1,125 +1,132 @@
 // ScriptUI parameter editor. Host reads and writes belong to the caller.
+// Layout: parameter list on the left, inspector for the highlighted
+// parameter on the right, pending changes and Apply along the bottom.
 FX.Editor = (function () {
     function open(o) {
         var d = o.dialog, rows = o.rows, drafts = FX.U.clone(o.drafts || {}),
             active = null, loading = true, filling = false, shown = false,
-            result = null, fields = [], i, apply, updatingDrafts = false,
+            result = null, apply, updatingDrafts = false,
             validationErrors = [], invalidDrafts = {}, visibleRows = [];
         d.orientation = 'column';
         d.alignChildren = 'fill';
-        d.minimumSize = [520, 280];
+        d.minimumSize = [640, 360];
         d.add('statictext', undefined, FX.Presentation.effectName(o.instances[0]) +
             ' - ' + o.instances.length + ' effects / ' + o.layerCount + ' layers');
-        var hint = d.add('statictext', undefined,
-            '* marks a pending change; ! needs correction. Change several parameters, then Apply once. Blank values keep originals.',
-            { multiline: true });
-        hint.preferredSize = [600, 32];
-        var searchRow = o.row(d);
-        searchRow.add('statictext', undefined, 'Find parameter');
+        var main = o.row(d);
+        main.alignment = ['fill', 'fill'];
+        main.alignChildren = ['fill', 'fill'];
+        main.spacing = 10;
+        // Left: find and choose a parameter.
+        var left = main.add('group');
+        left.orientation = 'column';
+        left.alignment = ['fill', 'fill'];
+        left.alignChildren = ['fill', 'top'];
+        left.spacing = 4;
+        var searchRow = o.row(left);
         var search = searchRow.add('edittext', undefined, '');
         search.fxParameterSearch = true;
         search.alignment = ['fill', 'center'];
-        search.characters = 25;
+        search.characters = 14;
+        search.helpTip = 'Find parameter by name or value. Every word must match.';
         o.button(searchRow, 'Clear search', function () {
             search.text = '';
             rebuildList();
         });
         var filter = searchRow.add('dropdownlist', undefined,
-            ['All parameters', 'Editable', 'Has keyframes', 'Pending changes', 'Unavailable']);
+            FX.I18N.list(['All parameters', 'Editable', 'Has keyframes', 'Pending changes', 'Unavailable']));
         filter.selection = 0;
         filter.fxParameterFilter = true;
-        var count = d.add('statictext', undefined, ''),
-            list = d.add('listbox', undefined, [], {
+        var count = left.add('statictext', undefined, ''),
+            list = left.add('listbox', undefined, [], {
                 numberOfColumns: 4, showHeaders: true,
-                columnTitles: ['Parameter', 'Current value', 'New value', 'Applies to'],
-                columnWidths: [205, 130, 125, 110]
+                columnTitles: FX.I18N.list(['Parameter', 'Current', 'New value', 'Applies to']),
+                columnWidths: [150, 80, 80, 66]
             });
         list.fxParameterList = true;
+        list.alignment = ['fill', 'fill'];
         list.helpTip = '* = pending change. ! = invalid value. Search and filters preserve all pending changes.';
-        list.preferredSize = [600, 132];
-        var title = d.add('statictext', undefined, ''),
-            current = d.add('statictext', undefined, '', { multiline: true });
-        current.preferredSize = [600, 60];
-        var previousValues = d.add('edittext', undefined, '', { multiline: true, scrolling: true, readonly: true });
-        previousValues.preferredSize = [600, 44];
+        list.preferredSize = [380, 250];
+        left.add('statictext', undefined, FX.I18N.t('* pending change   ! needs correction'));
+        // Right: inspector for the highlighted parameter.
+        var inspector = main.add('panel', undefined, FX.I18N.t('Selected parameter'));
+        inspector.orientation = 'column';
+        inspector.alignment = ['fill', 'fill'];
+        inspector.alignChildren = ['fill', 'top'];
+        inspector.preferredSize.width = 330;
+        inspector.margins = [10, 14, 10, 10];
+        var title = inspector.add('statictext', undefined, '');
+        try {
+            title.graphics.font = ScriptUI.newFont(title.graphics.font.name, 'BOLD', title.graphics.font.size);
+        } catch (ignoredFont) {}
+        var current = inspector.add('statictext', undefined, '', { multiline: true });
+        current.preferredSize = [310, 62];
+        var previousValues = inspector.add('edittext', undefined, '', { multiline: true, scrolling: true, readonly: true });
+        previousValues.preferredSize = [310, 44];
         previousValues.fxPreviousValues = true;
-        var animationRow = o.row(d),
-            removeAnimation = animationRow.add('checkbox', undefined, 'Remove keyframes (this parameter, all selected effects)');
+        var animationRow = o.row(inspector),
+            removeAnimation = animationRow.add('checkbox', undefined, FX.I18N.t('Remove keyframes (all selected effects)'));
         removeAnimation.fxRemoveAnimation = true;
         removeAnimation.value = false;
-        var fieldRow = o.row(d);
-        fieldRow.add('statictext', undefined, 'New value');
-        // Stack alternative editors without collapsing their dimensions. A
-        // zero-sized hidden EditText can retain that size after relayout in AE.
-        var valueHost = fieldRow.add('group');
-        valueHost.orientation = 'stack';
-        valueHost.alignment = ['fill', 'center'];
-        valueHost.alignChildren = ['fill', 'center'];
-        valueHost.minimumSize.height = 24;
-        var numberInputs = o.row(valueHost);
-        numberInputs.alignChildren = ['left', 'center'];
-        for (i = 0; i < 4; i++) {
-            fields.push(numberInputs.add('edittext', undefined, ''));
-            fields[i].characters = 9;
-            fields[i].minimumSize = [78, 24];
-            fields[i].fxParameterInput = true;
-        }
-        var menu = valueHost.add('dropdownlist', undefined, []);
-        menu.fxParameterMenu = true;
-        menu.minimumSize = [180, 24];
-        menu.preferredSize.width = 230;
-        var fieldHint = d.add('statictext', undefined, '', { multiline: true });
-        fieldHint.preferredSize = [600, 30];
-        var pendingTitle = d.add('statictext', undefined, ''),
-            changes = d.add('listbox', undefined, [], {
-                numberOfColumns: 3, showHeaders: true,
-                columnTitles: ['Pending parameter', 'Previous -> New value', 'Action'],
-                columnWidths: [140, 270, 190]
-            });
-        changes.fxPendingChanges = true;
-        changes.preferredSize = [600, 60];
-        var validation = d.add('statictext', undefined, '', { multiline: true });
-        validation.preferredSize = [600, 32];
-        var actions = o.row(d);
-        o.button(actions, 'View targets', showTargets);
-        o.button(actions, 'Clear this change', function () {
+        removeAnimation.helpTip = 'Clears the keyframes of this parameter in every selected effect. Blank value keeps each current value.';
+        inspector.add('statictext', undefined, FX.I18N.t('New value'));
+        var input = FX.ValueInput.create(inspector, {
+            fieldFlag: 'fxParameterInput', menuFlag: 'fxParameterMenu',
+            onError: function (error) {
+                fieldHint.text = String(error.message || error);
+            }
+        });
+        var fieldHint = inspector.add('statictext', undefined, '', { multiline: true });
+        fieldHint.preferredSize = [310, 44];
+        var inspectorActions = o.row(inspector);
+        o.button(inspectorActions, 'View targets', showTargets);
+        o.button(inspectorActions, 'Clear this change', function () {
             loading = true;
             removeAnimation.value = false;
-            for (var n = 0; n < fields.length; n++) { fields[n].text = ''; }
-            menu.selection = 0;
+            input.setRow(active ? active.row : null, null, null);
             loading = false;
             remember();
             load(active);
             rebuildList();
         });
-        o.button(actions, 'Clear all changes', function () {
+        // Bottom: everything that Apply will send.
+        var pendingTitle = d.add('statictext', undefined, ''),
+            changes = d.add('listbox', undefined, [], {
+                numberOfColumns: 3, showHeaders: true,
+                columnTitles: FX.I18N.list(['Pending parameter', 'Previous -> New value', 'Action']),
+                columnWidths: [160, 330, 200]
+            });
+        changes.fxPendingChanges = true;
+        changes.preferredSize = [700, 74];
+        var validation = d.add('statictext', undefined, '', { multiline: true });
+        validation.preferredSize = [700, 32];
+        var footer = o.row(d);
+        footer.alignChildren = ['fill', 'center'];
+        var applyHint = footer.add('statictext', undefined, FX.I18N.t('Apply closes the editor. To make more changes, use Edit Parameters again.'));
+        applyHint.alignment = ['fill', 'center'];
+        o.button(footer, 'Clear all changes', function () {
             drafts = {};
             save();
             load(active);
             rebuildList();
         });
-        var applyHint = d.add('statictext', undefined,
-            'Apply updates the selected effects. To make more changes, use Edit Parameters again.');
-        var footer = o.row(d);
         o.button(footer, 'Cancel', function () { remember(); d.close(0); });
         apply = o.button(footer, 'Apply', submit);
+        apply.preferredSize.width = 120;
         apply.helpTip = 'Apply all pending changes after confirmation, then close the editor. The same safely recovered selection stays ready for Edit Parameters.';
         function key(r) { return '$' + FX.Config.key(r.path); }
+        // Returns true when visibility actually changed (so layout is needed).
         function show(control, flag) {
-            control.visible = !!flag;
+            flag = !!flag;
+            if (control.visible === flag && control.fxShown === flag) { return false; }
+            control.visible = flag;
+            control.fxShown = flag;
             control.maximumSize.height = flag ? 10000 : 0;
+            return true;
         }
         function layout() {
             if (shown && !d.fxClosed) { d.layout.layout(true); }
         }
-        function isMenu(r) { return !!(r && r.row && r.row.control && r.row.control.kind === 'menu'); }
-        function dimension(r) {
-            if (!r || !r.row) { return 0; }
-            if (r.row.valueType === 'OneD') { return 1; }
-            if (r.row.valueType === 'COLOR') { return 4; }
-            if (r.row.valueType === 'TwoD' || r.row.valueType === 'TwoD_SPATIAL') { return 2; }
-            return 3;
-        }
+        function isMenu(r) { return !!(r && r.row && FX.ValueInput.isMenu(r.row)); }
         function canEdit(r) { return !!r && (r.safe || (removeAnimation.value && r.canRemoveKeyframes)); }
         function model(entry) {
             for (var n = 0; n < rows.length; n++) {
@@ -128,7 +135,7 @@ FX.Editor = (function () {
             return null;
         }
         function parse(entry) {
-            var p = FX.U.clone(entry.row.row), n, values = [], size = dimension(entry.row);
+            var p = FX.U.clone(entry.row.row);
             if (entry.keepCurrent) {
                 var r = model(entry);
                 FX.U.assert(r && !r.unknownValues && r.values.length, 'Current values unavailable; enter a fixed value');
@@ -137,11 +144,7 @@ FX.Editor = (function () {
             } else if (p.control && p.control.kind === 'menu') {
                 p.value = entry.menuValue;
             } else {
-                for (n = 0; n < size; n++) {
-                    FX.U.assert(/\S/.test(entry.texts[n] || ''), 'Enter every component for ' + entry.row.name);
-                    values.push(Number(entry.texts[n]));
-                }
-                p.value = size === 1 ? values[0] : values;
+                p.value = FX.ValueInput.parse({ valueType: p.valueType, name: entry.row.name }, entry.texts);
             }
             FX.Validate.rows([p]);
             return p;
@@ -161,76 +164,93 @@ FX.Editor = (function () {
                 }
             }
         }
+        function setText(target, text) {
+            if (target.text !== text) { target.text = text; }
+        }
         function refreshDrafts() {
             if (updatingDrafts) { return; }
             updatingDrafts = true;
+            var relayout = false;
             try {
-                var k, item, entry, total = 0, r, applicable, invalid = {}, label;
+                var k, item, entry, total = 0, r, applicable, invalid = {}, label, keys = [], same, n,
+                    previousText, actionText;
                 invalidDrafts = invalid;
                 validationErrors = [];
-                changes.removeAll();
                 for (k in drafts) {
-                    if (FX.U.own(drafts, k)) {
-                        entry = drafts[k];
-                        item = changes.add('item', entry.row.name);
-                        item.fxDraftKey = k;
-                        r = model(entry);
-                        item.subItems[0].text = (r ? r.previous : 'Unavailable') + ' -> ' + displayDraft(entry);
-                        item.helpTip = item.subItems[0].text;
-                        item.subItems[1].text = 'Set all selected effects';
-                        if (entry.removeKeyframes) {
-                            item.subItems[1].text = entry.keepCurrent ? 'Clear keys; keep each value' : 'Remove keys + set all values';
-                        }
-                        total++;
-                        try {
-                            parse(entry);
-                            applicable = r ? r.available : 0;
-                            if (r && entry.removeKeyframes && r.canRemoveKeyframes) { applicable += r.removable; }
-                            FX.U.assert(r && applicable === r.total,
-                                r && r.removable && !entry.removeKeyframes ?
-                                    'Remove keyframes for this parameter to update all selected effects, or clear this change.' :
-                                    'Cannot update all selected effects. View targets, resolve protected/missing parameters or change the selection.');
-                        }
-                        catch (error) {
-                            invalid[k] = true;
-                            item.subItems[1].text = 'Invalid value - correct before Apply';
-                            validationErrors.push(entry.row.name + ': ' + String(error.message || 'Invalid value'));
-                        }
+                    if (FX.U.own(drafts, k)) { keys.push(k); }
+                }
+                // Rebuilding a ListBox on every keystroke flickers in AE; only
+                // rebuild when the set of pending parameters changes.
+                same = changes.items.length === keys.length;
+                for (n = 0; same && n < keys.length; n++) {
+                    same = changes.items[n].fxDraftKey === keys[n];
+                }
+                if (!same) {
+                    changes.removeAll();
+                    for (n = 0; n < keys.length; n++) {
+                        item = changes.add('item', drafts[keys[n]].row.name);
+                        item.fxDraftKey = keys[n];
                     }
                 }
+                for (n = 0; n < keys.length; n++) {
+                    k = keys[n];
+                    entry = drafts[k];
+                    item = changes.items[n];
+                    r = model(entry);
+                    previousText = (r ? r.previous : 'Unavailable') + ' -> ' + displayDraft(entry);
+                    actionText = 'Set all selected effects';
+                    if (entry.removeKeyframes) {
+                        actionText = entry.keepCurrent ? 'Clear keys; keep each value' : 'Remove keys + set all values';
+                    }
+                    total++;
+                    try {
+                        parse(entry);
+                        applicable = r ? r.available : 0;
+                        if (r && entry.removeKeyframes && r.canRemoveKeyframes) { applicable += r.removable; }
+                        FX.U.assert(r && applicable === r.total,
+                            r && r.removable && !entry.removeKeyframes ?
+                                'Remove keyframes for this parameter to update all selected effects, or clear this change.' :
+                                'Cannot update all selected effects. View targets, resolve protected/missing parameters or change the selection.');
+                    }
+                    catch (error) {
+                        invalid[k] = true;
+                        actionText = 'Invalid value - correct before Apply';
+                        validationErrors.push(entry.row.name + ': ' + String(error.message || 'Invalid value'));
+                    }
+                    setText(item, entry.row.name);
+                    setText(item.subItems[0], previousText);
+                    setText(item.subItems[1], actionText);
+                    item.helpTip = previousText;
+                }
                 pendingTitle.text = total + ' pending parameter changes. Apply sends all of them in one batch.';
-                show(pendingTitle, total > 0);
-                show(changes, total > 0);
-                validation.text = validationErrors.join('\n');
-                show(validation, validationErrors.length > 0);
-                for (var n = 0; n < list.items.length; n++) {
+                relayout = show(pendingTitle, total > 0) || relayout;
+                relayout = show(changes, total > 0) || relayout;
+                setText(validation, validationErrors.join('\n'));
+                relayout = show(validation, validationErrors.length > 0) || relayout;
+                for (n = 0; n < list.items.length; n++) {
                     r = list.items[n].fxEditorRow;
                     entry = drafts[key(r)];
                     label = '';
                     if (entry) { label = invalid[key(r)] ? '! ' : '* '; }
                     label += r.name;
-                    if (list.items[n].text !== label) { list.items[n].text = label; }
-                    list.items[n].subItems[1].text = entry ? displayDraft(entry) : 'Keep original';
+                    setText(list.items[n], label);
+                    setText(list.items[n].subItems[1], entry ? displayDraft(entry) : 'Keep original');
                     applicable = r.available;
                     if (entry && entry.removeKeyframes && r.canRemoveKeyframes) { applicable += r.removable; }
-                    list.items[n].subItems[2].text = (entry && applicable < r.total ? 'Blocked ' : '') + applicable + '/' + r.total;
+                    setText(list.items[n].subItems[2], (entry && applicable < r.total ? 'Blocked ' : '') + applicable + '/' + r.total);
                 }
                 updateTitle(active);
                 apply.enabled = total > 0 && validationErrors.length === 0;
+                setText(apply, FX.I18N.applyChanges(total));
             } finally { updatingDrafts = false; }
-            layout();
+            if (relayout) { layout(); }
         }
         function remember() {
             if (loading || !active || d.fxClosed) { return; }
-            var texts = [], n, any = false, value = null;
-            for (n = 0; n < dimension(active); n++) {
-                texts.push(fields[n].text);
-                if (/\S/.test(fields[n].text)) { any = true; }
-            }
+            var texts = input.texts(), any = input.hasText(), value = null;
             if (isMenu(active)) {
-                value = menu.selection ? menu.selection.fxValue : null;
-                any = typeof value === 'number';
-                if (!any) { value = null; }
+                value = input.menuChoice();
+                any = value !== null;
             }
             if ((any || removeAnimation.value) && canEdit(active)) {
                 drafts[key(active)] = {
@@ -246,7 +266,7 @@ FX.Editor = (function () {
         function load(r) {
             loading = true;
             active = r;
-            var entry = r ? drafts[key(r)] : null, size = dimension(r), n, c, item;
+            var entry = r ? drafts[key(r)] : null, c;
             removeAnimation.value = !!(entry && entry.removeKeyframes);
             removeAnimation.enabled = !!r && r.canRemoveKeyframes;
             show(animationRow, !!r && r.removable > 0);
@@ -265,27 +285,16 @@ FX.Editor = (function () {
             previousValues.text = r ? 'Previous values (effect counts): ' + r.previous : '';
             // Retain EditText dimensions when a search temporarily hides it.
             previousValues.visible = !!r;
-            menu.removeAll();
-            menu.add('item', 'Keep original values');
-            menu.selection = 0;
-            if (isMenu(r)) {
-                for (n = 0; n < r.row.control.choices.length; n++) {
-                    c = r.row.control.choices[n];
-                    item = menu.add('item', c.label);
-                    item.fxValue = c.value;
-                    if (entry && entry.menuValue === c.value) { menu.selection = item; }
-                }
-            }
-            menu.visible = isMenu(r);
-            numberInputs.visible = !isMenu(r) && size > 0;
-            menu.enabled = canEdit(r);
-            for (n = 0; n < fields.length; n++) {
-                fields[n].visible = !isMenu(r) && n < size;
-                fields[n].enabled = canEdit(r);
-                fields[n].text = entry && entry.texts[n] !== undefined ? entry.texts[n] : '';
-            }
-            fieldHint.text = 'Blank / Keep original leaves each existing value unchanged.';
+            input.setRow(r ? r.row : null, entry ? entry.texts : null, entry ? entry.menuValue : null,
+                { current: r && r.values.length === 1 && !r.unknownValues ? r.values[0] : null });
+            input.setEnabled(canEdit(r));
+            fieldHint.text = 'Leave blank to keep each existing value.';
             if (r && r.removable) { fieldHint.text = 'With Remove keyframes checked: blank keeps each current value; a new value replaces all selected values.'; }
+            if (input.isToggle()) {
+                fieldHint.text = 'Check or uncheck to set every selected effect. Clear this change keeps each original value. Number... edits it as a number; Checkbox switches back.';
+                if (r.removable) { fieldHint.text += ' With Remove keyframes checked and no click, each current value is kept.'; }
+            }
+            if (r && r.row && r.row.valueType === 'COLOR' && !isMenu(r)) { fieldHint.text += ' Colors use 0-1 per channel; type a hex color or use Pick.'; }
             if (r && r.row && r.row.control && r.row.control.kind === 'number') {
                 c = r.row.control;
                 if (c.min !== undefined) { fieldHint.text += ' Min: ' + c.min + '.'; }
@@ -329,9 +338,9 @@ FX.Editor = (function () {
         }
         function showTargets() {
             if (!active) { return; }
-            var detail = o.createDialog('Parameter occurrences'), table = detail.add('listbox', undefined, [], {
+            var detail = o.createDialog(FX.I18N.t('Parameter occurrences')), table = detail.add('listbox', undefined, [], {
                 numberOfColumns: 5, showHeaders: true,
-                columnTitles: ['Composition', 'Layer', 'Effect', 'Status', 'Previous value'], columnWidths: [90, 110, 120, 230, 130]
+                columnTitles: FX.I18N.list(['Composition', 'Layer', 'Effect', 'Status', 'Previous value']), columnWidths: [90, 110, 120, 230, 130]
             }), n, entry, reason, item;
             detail.orientation = 'column';
             detail.alignChildren = 'fill';
@@ -373,12 +382,10 @@ FX.Editor = (function () {
             remember();
             load(list.selection ? list.selection.fxEditorRow : null);
         }, 'parameter-selection');
-        for (i = 0; i < fields.length; i++) { fields[i].onChanging = fields[i].onChange = o.guard(remember, 'parameter-input'); }
-        menu.onChange = o.guard(remember, 'parameter-menu');
+        input.onChange(o.guard(remember, 'parameter-input'));
         removeAnimation.onClick = o.guard(function () {
             remember();
-            for (var n = 0; n < fields.length; n++) { fields[n].enabled = canEdit(active); }
-            menu.enabled = canEdit(active);
+            input.setEnabled(canEdit(active));
         }, 'parameter-animation');
         changes.onChange = o.guard(function () {
             if (loading || updatingDrafts || !changes.selection) { return; }
@@ -397,9 +404,7 @@ FX.Editor = (function () {
             }
         }, 'pending-selection');
         loading = false;
-        show(searchRow, rows.length > 1);
-        show(count, rows.length > 1);
-        show(list, rows.length > 1);
+        show(left, rows.length > 1);
         rebuildList();
         shown = true;
         d.onResizing = d.onResize = o.guard(function () { d.layout.resize(); }, 'editor-resize');

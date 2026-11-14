@@ -199,7 +199,7 @@ test('editor identifies every occurrence and blocks partial edits even with keyf
         const field = h.parameterFields(d)[0];
         field.text = '20';
         field.onChanging();
-        assert.equal(h.all(d, 'button').find(b => b.text === 'Apply').enabled, false);
+        assert.equal(h.all(d, 'button').find(b => b.fxTitle === 'Apply').enabled, false);
         assert.ok(h.all(d, 'statictext').some(t => /Cannot update all selected effects/.test(t.text)));
         h.click(d, 'Cancel');
     };
@@ -212,7 +212,7 @@ test('editor identifies every occurrence and blocks partial edits even with keyf
     h.setKeyframeConsent(true);
     h.dialogHooks['Edit Parameters'] = d => { // recover the explicit per-parameter draft
         assert.equal(h.all(d, 'checkbox')[0].value, true);
-        assert.equal(h.all(d, 'button').find(b => b.text === 'Apply').enabled, false);
+        assert.equal(h.all(d, 'button').find(b => b.fxTitle === 'Apply').enabled, false);
         h.click(d, 'Cancel');
     };
     h.click(p, 'Edit Parameters...');
@@ -251,7 +251,7 @@ test('unchecking removal on an animated-only row clears its destructive draft', 
         box.value = false;
         box.onClick();
         assert.equal(h.all(d, 'listbox')[1].items.length, 0);
-        assert.equal(h.all(d, 'button').find(b => b.text === 'Apply').enabled, false);
+        assert.equal(h.all(d, 'button').find(b => b.fxTitle === 'Apply').enabled, false);
         h.click(d, 'Cancel');
     };
     h.click(p, 'Edit Parameters...');

@@ -1,4 +1,4 @@
-﻿// FX Exchanger 0.1.15 — generated; edit src.
+﻿// FXHX 0.1.16 — generated; edit src.
 #target aftereffects
 #targetengine "fxexchanger"
 (function(host){
@@ -127,6 +127,43 @@ FX.U = (function () {
         }
         return ('00000000' + (h >>> 0).toString(16)).slice(-8);
     }
+    // Accepts what people type in AE fields: "20", "-0.5", "20,5", " .5 ".
+    // Rejects hex, exponents, thousands separators and empty text so a typo
+    // never becomes a silent 0 or NaN.
+    function parseNumber(text, label) {
+        var s = trim(String(text === undefined || text === null ? '' : text)),
+            prefix = label ? label + ': ' : '',
+            n;
+        if (/^[+-]?\d*,\d+$/.test(s)) {
+            s = s.replace(',', '.');
+        }
+        assert(/^[+-]?(\d+\.?\d*|\.\d+)$/.test(s),
+            prefix + 'enter a number such as 20 or 20.5');
+        n = Number(s);
+        assert(isFinite(n), prefix + 'number is too large');
+        return n;
+    }
+    // Hosts may store values at reduced precision (for example float32 colors),
+    // so a requested 0.2 can read back as 0.20000000298. Compare with a small
+    // relative tolerance; structural differences still fail.
+    function sameValue(a, b, tolerance) {
+        var i, t = typeof tolerance === 'number' ? tolerance : 1e-5;
+        if (array(a) || array(b)) {
+            if (!array(a) || !array(b) || a.length !== b.length) {
+                return false;
+            }
+            for (i = 0; i < a.length; i++) {
+                if (!sameValue(a[i], b[i], t)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        if (typeof a !== 'number' || typeof b !== 'number' || !isFinite(a) || !isFinite(b)) {
+            return a === b;
+        }
+        return Math.abs(a - b) <= t * Math.max(1, Math.abs(a), Math.abs(b));
+    }
     return {
         measure: function (diagnostics, name, started, items) {
             try {
@@ -145,7 +182,9 @@ FX.U = (function () {
         clone: clone,
         assert: assert,
         move: move,
-        hash: hash
+        hash: hash,
+        parseNumber: parseNumber,
+        sameValue: sameValue
     };
 })();
 
@@ -983,18 +1022,54 @@ FX.Parameters = (function () {
         }
         return null;
     }
+    // ExtendScript has no checkbox flag. A parameter is presented as on/off
+    // only with strong evidence: the Checkbox Control expression effect, or a
+    // plain OneD number without units, a range of 0..1 (or none), and every
+    // known current value exactly 0 or 1. The editor keeps a "Number..."
+    // escape for the rare slider that happens to sit at 0 or 1.
+    function isToggle(row, values, effectMatchName) {
+        var c, i;
+        if (!row || row.valueType !== 'OneD') {
+            return false;
+        }
+        c = row.control;
+        if (c && c.kind !== 'number') {
+            return false;
+        }
+        if (c && (c.units || (c.min !== undefined && c.min !== 0) || (c.max !== undefined && c.max !== 1))) {
+            return false;
+        }
+        if (effectMatchName === 'ADBE Checkbox Control') {
+            return true;
+        }
+        if (!values || !values.length) {
+            return false;
+        }
+        for (i = 0; i < values.length; i++) {
+            if (values[i] !== 0 && values[i] !== 1) {
+                return false;
+            }
+        }
+        return true;
+    }
     function display(row, value) {
         if (typeof value === 'undefined') {
             value = row.value;
         }
-        var label = menuValue(row.control, value);
+        var label;
+        if (row && row.toggle && (value === 0 || value === 1)) {
+            label = value === 1 ? 'On' : 'Off';
+            return FX.I18N ? FX.I18N.t(label) : label;
+        }
+        label = menuValue(row.control, value);
         if (label !== null) {
             return label;
         }
         return FX.U.array(value) ? value.join(', ') : String(value);
     }
     return { profile: profile, fromConfig: fromConfig, blocked: blocked, excluded: excluded,
-        rows: rows, choices: choices, menuValue: menuValue, display: display, normalize: normalize };
+        rows: rows, choices: choices, menuValue: menuValue, display: display, normalize: normalize,
+        isToggle: isToggle };
 })();
 
 // MODULE: filters/filters.js
@@ -1541,13 +1616,15 @@ FX.Updates = (function () {
     function browserCommand() {
         return 'powershell.exe -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -Command "Start-Process \'' + latest + '\'"';
     }
-    return { installed: '0.1.15', repository: repository, latest: latest, endpoint: endpoint, version: version,
+    return { installed: '0.1.16', repository: repository, latest: latest, endpoint: endpoint, version: version,
         compare: compare, release: release, checkCommand: checkCommand, browserCommand: browserCommand };
 })();
 
 // MODULE: storage/store.js
 FX.Store = function (directory, options) {
     options = options || {};
+    // Data identifiers keep the original name (folder, product fields) so
+    // existing preferences and presets survive the FXHX rename.
     this.dir = directory || new Folder(Folder.userData.fsName + '/FXExchanger');
     this.baseName = options.baseName || 'state.json';
     FX.U.assert(
@@ -1971,11 +2048,24 @@ FX.AfterEffectsAdapter.prototype.version = function () {
 FX.AfterEffectsAdapter.prototype.checkForUpdates = function (installed) {
     FX.U.assert(typeof system !== 'undefined' && typeof system.callSystem === 'function',
         'Update checks are unavailable in this host. Open github.com/datacg/fxhx/releases.');
+    FX.U.assert(this.networkAllowed() !== false,
+        'Enable Preferences > Scripting & Expressions > "Allow Scripts to Write Files and Access Network", or use Open Releases.');
     var raw = String(system.callSystem(FX.Updates.checkCommand())).replace(/^\s+|\s+$/g, '');
     if (raw === 'FXHX_NO_RELEASE') { return { unpublished: true }; }
     FX.U.assert(raw !== 'FXHX_UPDATE_ERROR' && raw.length > 0,
         'Could not check GitHub. Check your connection or try again later.');
     return FX.Updates.release(raw, installed);
+};
+// true/false when the host preference is readable; null when unknown.
+FX.AfterEffectsAdapter.prototype.networkAllowed = function () {
+    try {
+        if (typeof app !== 'undefined' && app.preferences &&
+            typeof app.preferences.getPrefAsLong === 'function') {
+            return app.preferences.getPrefAsLong('Main Pref Section',
+                'Pref_SCRIPTING_FILE_NETWORK_SECURITY') === 1;
+        }
+    } catch (ignoredPreference) {}
+    return null;
 };
 FX.AfterEffectsAdapter.prototype.openReleases = function () {
     FX.U.assert(typeof system !== 'undefined' && typeof system.callSystem === 'function',
@@ -1986,7 +2076,7 @@ FX.AfterEffectsAdapter.prototype.project = function () {
     return app.project;
 };
 FX.AfterEffectsAdapter.prototype.undo = function (label, fn) {
-    app.beginUndoGroup('FX Exchanger - ' + label);
+    app.beginUndoGroup('FXHX - ' + label);
     try {
         return fn();
     } finally {
@@ -3211,15 +3301,20 @@ FX.AfterEffectsAdapter.prototype.writeRows = function (effect, rows, options) {
                 if (authorization) {
                     FX.U.assert(p.numKeys === 0, 'Keyframes remain after conversion to a fixed value');
                 }
+                // Float storage noise (e.g. float32 colors) is accepted;
+                // real rounding or clamping still fails verification.
                 FX.U.assert(
-                    FX.JSON.stringify(observed) ===
-                        FX.JSON.stringify(row.value),
+                    FX.U.sameValue(observed, row.value),
                     'Host normalized, rounded or did not retain requested value'
                 );
             } finally {
                 FX.U.measure(this.diagnostics, 'readback', started, 1);
             }
             item.status = 'Written and Verified';
+            if (FX.JSON.stringify(observed) !== FX.JSON.stringify(row.value)) {
+                item.reason = 'Host stored the value at its own precision: ' +
+                    FX.JSON.stringify(observed);
+            }
             r.verified++;
         } catch (error) {
             r.failed++;
@@ -3307,7 +3402,7 @@ FX.AfterEffectsAdapter.prototype.schedule = function (callbackName, epoch) {
         '(' +
         argument +
         '); }';
-    var id = app.scheduleTask(code, 25, false);
+    var id = app.scheduleTask(code, 10, false);
     this.diagnostics.measure('tasksScheduled', 0, 1);
     return id;
 };
@@ -3463,7 +3558,7 @@ FX.Scanner.prototype.tick = function () {
     }
     this.ticking = true;
     var job = this.job,
-        deadline = FX.U.now() + 12,
+        deadline = FX.U.now() + FX.Scanner.SLICE_MS,
         count = 0,
         event,
         item,
@@ -3474,7 +3569,7 @@ FX.Scanner.prototype.tick = function () {
         stepStarted,
         readStarted;
     try {
-        while (count < 30 && FX.U.now() < deadline) {
+        while (count < FX.Scanner.SLICE_STEPS && FX.U.now() < deadline) {
             stepStarted = FX.U.now();
             if (job.phase === 'basic') {
                 if (job.cursor.done) {
@@ -3697,6 +3792,56 @@ FX.Scanner.prototype.invalidate = function () {
         this.basic.stale = true;
     }
 };
+// After a successful write that cannot add, remove or reorder effects (set,
+// copy, enable, disable), the Basic snapshot still describes the project:
+// same layers, same effect stacks. Reusing it avoids relisting the whole scope.
+// `effects` are the written targets: their stacks are re-checked against the
+// host and `enabled` is re-read; configurations for them are dropped so they
+// are read again explicitly. Returns false (snapshot stays stale) when
+// anything does not match, so the caller falls back to a full Basic scan.
+FX.Scanner.prototype.reuseAfterWrite = function (project, effects) {
+    var base = this.basic, i, record, layers = {}, layer, target, enabled, checked = {};
+    if (this.job || !base || base.project !== project || base.project !== this.adapter.project()) {
+        return false;
+    }
+    for (i = 0; i < base.layers.length; i++) {
+        layers['$' + FX.Model.layerKey(base.layers[i])] = base.layers[i];
+    }
+    var byKey = {};
+    for (i = 0; i < base.instances.length; i++) {
+        byKey['$' + FX.Model.effectKey(base.instances[i])] = base.instances[i];
+    }
+    var updates = [];
+    try {
+        for (i = 0; i < effects.length; i++) {
+            record = byKey['$' + FX.Model.effectKey(effects[i])];
+            layer = layers['$' + FX.Model.layerKey(effects[i])];
+            if (!record || !layer) {
+                return false;
+            }
+            if (!checked['$' + FX.Model.layerKey(layer)]) {
+                this.adapter.validateLayer(layer, true);
+                checked['$' + FX.Model.layerKey(layer)] = true;
+            }
+            target = this.adapter.resolve(record);
+            enabled = target.effect.canSetEnabled ? !!target.effect.enabled : true;
+            updates.push([record, enabled]);
+        }
+    } catch (changed) {
+        this.adapter.diagnostics.add('scanner', '', 'reuse-after-write refused');
+        return false;
+    }
+    for (i = 0; i < updates.length; i++) {
+        updates[i][0].enabled = updates[i][1];
+        delete this.configurations['$' + FX.Model.effectKey(updates[i][0])];
+    }
+    base.stale = false;
+    this.result = base;
+    this.analysisRevision++;
+    this.inventoryCache = null;
+    this.adapter.diagnostics.add('scanner', '', 'reuse-after-write; effects=' + updates.length);
+    return true;
+};
 FX.Scanner.prototype.current = function () {
     FX.U.assert(
         this.basic &&
@@ -3743,6 +3888,11 @@ FX.Scanner.prototype.inventory = function () {
     );
     return out;
 };
+// Work per scheduler tick. 40 ms keeps the panel responsive while needing
+// about 3x fewer AE idle callbacks than the former 12 ms / 30 steps; a single
+// slow host call still cannot be interrupted.
+FX.Scanner.SLICE_MS = 40;
+FX.Scanner.SLICE_STEPS = 150;
 
 // MODULE: batch/batch.js
 FX.Batch = function (adapter, scanner) {
@@ -3942,11 +4092,26 @@ FX.Batch.prototype._execute = function (plan) {
         plan.scanId === scan.id && plan.project === scan.project,
         'Scan is no longer current'
     );
-    for (i = 0; i < scan.layers.length; i++) {
-        layerIndex['$' + FX.Model.layerKey(scan.layers[i])] = FX.U.clone(
-            scan.layers[i]
-        );
+    // Only the layers this plan touches are needed (cloning the whole scope
+    // was a measurable cost on large projects).
+    var wanted = {};
+    for (i = 0; i < plan.targets.length; i++) {
+        wanted['$' + FX.Model.layerKey(plan.targets[i])] = true;
     }
+    for (i = 0; i < scan.layers.length; i++) {
+        key = '$' + FX.Model.layerKey(scan.layers[i]);
+        if (wanted[key]) {
+            layerIndex[key] = FX.U.clone(scan.layers[i]);
+        }
+    }
+    // Operations that never add or remove effects. Their targets were fully
+    // captured and compared during prevalidation in this same synchronous
+    // call. A second full capture right before writing is only needed when an
+    // earlier write in this batch touched the same layer (a plugin setter can
+    // change sibling effects); otherwise it repeats the same read.
+    var nonStructural = FX.U.contains(['set', 'copy', 'enable', 'disable'], plan.operation),
+        prevalidated = {},
+        touchedLayers = {};
     var prevalidationStarted = FX.U.now();
     try {
         // All targets must pass before any write. Read neighbours' structure only.
@@ -3971,6 +4136,7 @@ FX.Batch.prototype._execute = function (plan) {
             key = '$' + FX.Model.layerKey(t);
             if (plan.operation !== 'apply' && !blocked[key]) {
                 var checked = this.adapter.validateOccurrence(t, layerIndex[key]);
+                prevalidated['$' + FX.Model.effectKey(t)] = true;
                 this.adapter.validateKeyframeRemoval(checked.effect,
                     (plan.keyframeRemovals || {})['$' + FX.Model.effectKey(t)] || []);
                 if (plan.options.requireAll) {
@@ -4066,10 +4232,12 @@ FX.Batch.prototype._execute = function (plan) {
                                 );
                             }
                         } else {
-                            current = self.adapter.validateOccurrence(
-                                t,
-                                layerIndex[key]
-                            );
+                            // The layer stack was re-checked just above.
+                            current = nonStructural && prevalidated['$' + FX.Model.effectKey(t)] &&
+                                !touchedLayers[key]
+                                ? self.adapter.resolve(t)
+                                : self.adapter.validateOccurrence(t, layerIndex[key]);
+                            touchedLayers[key] = true;
                             FX.U.assert(
                                 !current.layer.locked,
                                 'Layer became locked'
@@ -4200,6 +4368,374 @@ FX.Batch.prototype._execute = function (plan) {
         this.adapter.diagnostics.error('batch-undo', hostError);
     }
     return report;
+};
+
+// MODULE: ui/i18n.js
+// Interface language. English strings are the keys; translations apply to
+// static labels (buttons, titles, column headers, fixed hints). Messages
+// built from data stay in English. Logic never compares translated text:
+// controls keep their English key in `fxTitle` / `fxKey`.
+//
+// Language: the FXHX_LANG environment variable ("en" or "pt") wins;
+// otherwise After Effects' $.locale (pt_BR, pt_PT -> pt). Default: en.
+FX.I18N = (function () {
+    var PT = {
+        '* pending change   ! needs correction': '* alteração pendente   ! precisa de correção',
+        '0 effects selected': '0 efeitos selecionados',
+        'Action': 'Ação',
+        'Active Composition': 'Composição ativa',
+        'Add Effect...': 'Adicionar efeito...',
+        'Add to Selection': 'Adicionar à seleção',
+        'All effects': 'Todos os efeitos',
+        'All parameters': 'Todos os parâmetros',
+        'Animated': 'Animado',
+        'Animation Inspection': 'Inspeção de animação',
+        'Any': 'Qualquer',
+        'Applies to': 'Aplica-se a',
+        'Apply': 'Aplicar',
+        'Apply closes the editor. To make more changes, use Edit Parameters again.':
+            'Aplicar fecha o editor. Para mais alterações, use Editar parâmetros de novo.',
+        'Cancel': 'Cancelar',
+        'Check GitHub for a newer version. Only runs when you click Check for updates.':
+            'Procura uma versão nova no GitHub. Só roda quando você clica em Verificar atualizações.',
+        'Check for updates': 'Verificar atualizações',
+        'Checkbox': 'Caixa de seleção',
+        'Choose': 'Escolher',
+        'Choose Compositions': 'Escolher composições',
+        'Choose Timeline composition': 'Escolher composição da Timeline',
+        'Choose a scope, then type a name and press Enter (or Search) to list effects.':
+            'Escolha o escopo, digite um nome e pressione Enter (ou Buscar) para listar os efeitos.',
+        'Choose compositions': 'Escolher composições',
+        'Choose copy reference': 'Escolher referência para copiar',
+        'Choose effect to apply': 'Escolher efeito',
+        'Choose source': 'Escolher origem',
+        'Choose...': 'Escolher...',
+        'Clear': 'Limpar',
+        'Clear Selection': 'Limpar seleção',
+        'Clear all changes': 'Limpar todas',
+        'Clear search': 'Limpar busca',
+        'Clear this change': 'Limpar esta alteração',
+        'Close': 'Fechar',
+        'Compare configurations': 'Comparar configurações',
+        'Compare...': 'Comparar...',
+        'Composition': 'Composição',
+        'Confirm changes': 'Confirmar alterações',
+        'Copy From Another Effect...': 'Copiar de outro efeito...',
+        'Copy Parameters': 'Copiar parâmetros',
+        'Copy Parameters...': 'Copiar parâmetros...',
+        'Current': 'Atual',
+        'Current (effects)': 'Atual (efeitos)',
+        'Curve': 'Curva',
+        'Details...': 'Detalhes...',
+        'Diagnostics...': 'Diagnóstico...',
+        'Disable': 'Desativar',
+        'Edit Parameters': 'Editar parâmetros',
+        'Edit Parameters...': 'Editar parâmetros...',
+        'Edit any number of parameters, then Save preset. Only the saved preset changes, not the project.':
+            'Edite quantos parâmetros quiser e clique em Salvar preset. Só o preset muda, não o projeto.',
+        'Edit preset': 'Editar preset',
+        'Edit values...': 'Editar valores...',
+        'Editable': 'Editáveis',
+        'Effect': 'Efeito',
+        'Effect details': 'Detalhes do efeito',
+        'Effect presets': 'Presets de efeito',
+        'Effects': 'Efeitos',
+        'Enable': 'Ativar',
+        'Entire Project': 'Projeto inteiro',
+        'FXHX Help': 'Ajuda do FXHX',
+        'FXHX diagnostics': 'Diagnóstico do FXHX',
+        'Filters...': 'Filtros...',
+        'Find': 'Buscar',
+        'Grouping': 'Agrupamento',
+        'Grouping...': 'Agrupamento...',
+        'Groups': 'Grupos',
+        'Has keyframes': 'Com keyframes',
+        'Keep original values': 'Manter valores originais',
+        'Keep saved value': 'Manter valor salvo',
+        'Help': 'Ajuda',
+        'I understand: only compatible effects will change.': 'Entendo: só efeitos compatíveis serão alterados.',
+        'Inspect Animation...': 'Inspecionar animação...',
+        'Inspect Selected': 'Inspecionar selecionados',
+        'Invert Selection': 'Inverter seleção',
+        'Layer': 'Layer',
+        'Layer and effect filters': 'Filtros de layer e efeito',
+        'Layers': 'Layers',
+        'Locate': 'Localizar',
+        'Locate selected': 'Localizar selecionado',
+        'More Actions': 'Mais ações',
+        'More...': 'Mais...',
+        'New value': 'Novo valor',
+        'Next': 'Próxima',
+        'Number...': 'Número...',
+        'Off': 'Desligado',
+        'On': 'Ligado',
+        'Unchanged (mixed)': 'Sem alteração (valores diferentes)',
+        'Unchanged (now Off)': 'Sem alteração (agora Desligado)',
+        'Unchanged (now On)': 'Sem alteração (agora Ligado)',
+        'Will set: Off': 'Vai definir: Desligado',
+        'Will set: On': 'Vai definir: Ligado',
+        'No': 'Não',
+        'Open Releases': 'Abrir Releases',
+        'Operation results': 'Resultados da operação',
+        'Operation selection': 'Seleção da operação',
+        'Parameter': 'Parâmetro',
+        'Parameter occurrences': 'Ocorrências do parâmetro',
+        'Paste Parameters...': 'Colar parâmetros...',
+        'Pending changes': 'Alterações pendentes',
+        'Pending parameter': 'Parâmetro pendente',
+        'Pick...': 'Escolher...',
+        'Presets...': 'Presets...',
+        'Previous': 'Anterior',
+        'Previous -> New value': 'Anterior -> Novo valor',
+        'Previous value': 'Valor anterior',
+        'Property': 'Propriedade',
+        'Property value...': 'Valor de propriedade...',
+        'Read Parameters': 'Ler parâmetros',
+        'Refresh': 'Atualizar',
+        'Remove Effects': 'Remover efeitos',
+        'Remove highlighted': 'Remover destacados',
+        'Remove keyframes (all selected effects)': 'Remover keyframes (todos os efeitos selecionados)',
+        'Rename...': 'Renomear...',
+        'Results...': 'Resultados...',
+        'Save': 'Salvar',
+        'Save Effect Preset...': 'Salvar preset de efeito...',
+        'Save log...': 'Salvar log...',
+        'Save preset': 'Salvar preset',
+        'Save report...': 'Salvar relatório...',
+        'Saved presets': 'Presets salvos',
+        'Scan': 'Listar',
+        'Scope': 'Escopo',
+        'Search': 'Buscar',
+        'Select All': 'Selecionar tudo',
+        'Select Results': 'Selecionar resultados',
+        'Selected parameter': 'Parâmetro selecionado',
+        'Selection...': 'Seleção...',
+        'Show all properties': 'Mostrar todas as propriedades',
+        'Static': 'Estático',
+        'Status': 'Status',
+        'Technical details': 'Detalhes técnicos',
+        'These actions affect visible results only.': 'Estas ações afetam só os resultados visíveis.',
+        'Time (s)': 'Tempo (s)',
+        'Unavailable': 'Indisponíveis',
+        'Use filters': 'Usar filtros',
+        'Use selected': 'Usar selecionados',
+        'Use selection': 'Usar seleção',
+        'Use view': 'Usar visualização',
+        'Value': 'Valor',
+        'View': 'Ver',
+        'View targets': 'Ver alvos',
+        'Yes': 'Sim'
+    };
+    var language = null;
+    function detect() {
+        var forced = '', locale = '';
+        try {
+            if (typeof $ !== 'undefined' && typeof $.getenv === 'function') {
+                forced = String($.getenv('FXHX_LANG') || '').toLowerCase();
+            }
+        } catch (ignoredEnv) {}
+        if (forced === 'en' || forced === 'pt') {
+            return forced;
+        }
+        try {
+            if (typeof $ !== 'undefined' && $.locale) {
+                locale = String($.locale).toLowerCase();
+            }
+        } catch (ignoredLocale) {}
+        return /^pt/.test(locale) ? 'pt' : 'en';
+    }
+    function current() {
+        if (language === null) {
+            language = detect();
+        }
+        return language;
+    }
+    function t(text) {
+        if (current() === 'pt' && FX.U.own(PT, text)) {
+            return PT[text];
+        }
+        return text;
+    }
+    function list(items) {
+        var out = [], i;
+        for (i = 0; i < items.length; i++) { out.push(t(items[i])); }
+        return out;
+    }
+    // Button labels with counts.
+    function applyChanges(total) {
+        if (current() === 'pt') {
+            if (!total) { return 'Aplicar'; }
+            return 'Aplicar ' + total + (total === 1 ? ' alteração' : ' alterações');
+        }
+        if (!total) { return 'Apply'; }
+        return 'Apply ' + total + (total === 1 ? ' change' : ' changes');
+    }
+    function applyTo(layers, count) {
+        if (current() === 'pt') {
+            if (layers) { return 'Adicionar a ' + count + ' layers'; }
+            return 'Aplicar a ' + count + (count === 1 ? ' efeito' : ' efeitos');
+        }
+        if (layers) { return 'Add to ' + count + ' layers'; }
+        return 'Apply to ' + count + (count === 1 ? ' effect' : ' effects');
+    }
+    return {
+        t: t,
+        applyChanges: applyChanges,
+        applyTo: applyTo,
+        list: list,
+        language: current,
+        // For tests and tooling; null re-detects.
+        use: function (code) { language = code; },
+        dictionary: function () { return PT; }
+    };
+})();
+
+// MODULE: ui/layout.js
+// Manual row geometry for the dockable panel. ScriptUI's automatic layout
+// cannot wrap or scroll a docked panel, so rows are positioned explicitly.
+FX.Layout = (function () {
+    // Width from the host font (scales with UI zoom/DPI); the fixed
+    // fallback keeps the previous geometry when measuring is unavailable.
+    function textWidth(c) {
+        var label = c.type === 'statictext',
+            fallback = label ? 38 : 64,
+            measured;
+        try {
+            measured = c.graphics.measureString(String(c.text))[0];
+            if (typeof measured === 'number' && isFinite(measured) && measured > 0) {
+                return Math.max(fallback, Math.ceil(measured) + (label ? 6 : 22));
+            }
+        } catch (ignoredMeasure) {}
+        return fallback;
+    }
+    function row(control, width, height, primaryFirst) {
+        var items = [],
+            i,
+            c,
+            flex = -1,
+            x = 0,
+            widths = [],
+            weights = [],
+            fixed = 0,
+            gap = 4;
+        for (i = 0; i < control.children.length; i++) {
+            c = control.children[i];
+            if (c.visible !== false) {
+                items.push(c);
+            }
+        }
+        if (!items.length) {
+            return;
+        }
+        if (height > 28 && items.length > 2) {
+            var split = 2,
+                start = 0,
+                line,
+                end,
+                j;
+            if (items.length === 3) {
+                split = 1;
+            }
+            for (line = 0; line < 2; line++) {
+                end = items.length;
+                if (line === 0) {
+                    end = split;
+                }
+                widths = FX.Presentation.rowWidths(
+                    width,
+                    line === 0 && split === 1 ? [1] : [1, 1],
+                    gap
+                );
+                x = 0;
+                for (j = start; j < end; j++) {
+                    items[j].bounds = [
+                        x,
+                        line * 32,
+                        x + widths[j - start],
+                        line * 32 + 28
+                    ];
+                    x += widths[j - start] + gap;
+                }
+                start = split;
+            }
+            return;
+        }
+        for (i = 0; i < items.length; i++) {
+            c = items[i];
+            if (c.type === 'dropdownlist' || c.type === 'edittext') {
+                flex = i;
+            }
+            weights.push(1);
+        }
+        if (primaryFirst) {
+            weights[0] = 2;
+        }
+        if (flex >= 0) {
+            for (i = 0; i < items.length; i++) {
+                if (i === flex) {
+                    continue;
+                }
+                widths[i] = textWidth(items[i]);
+                fixed += widths[i];
+            }
+            widths[flex] = Math.max(
+                20,
+                width - fixed - gap * (items.length - 1)
+            );
+        } else {
+            widths = FX.Presentation.rowWidths(width, weights, gap);
+        }
+        for (i = 0; i < items.length; i++) {
+            items[i].bounds = [x, 0, x + widths[i], 28];
+            x += widths[i] + gap;
+        }
+    }
+    return { textWidth: textWidth, row: row };
+})();
+
+// MODULE: ui/activity.js
+// Single source of truth for what the panel is doing. Replaces the former
+// `busy` boolean with explicit phases and checked transitions:
+//
+//   idle ──► listing ──► reading ──► idle
+//    │          │           │
+//    │          └───────────┴──► idle   (done, cancel or error)
+//    └──► applying ──► idle | listing  (automatic refresh after a write)
+//
+// An unexpected transition is recorded (and reported to diagnostics) but
+// still applied, so a missed edge can never leave the panel stuck busy.
+FX.Activity = function (onViolation) {
+    this.phase = 'idle';
+    this.violations = 0;
+    this.onViolation = onViolation || null;
+};
+FX.Activity.PHASES = ['idle', 'listing', 'reading', 'applying'];
+FX.Activity.ALLOWED = {
+    idle: ['idle', 'listing', 'reading', 'applying'],
+    listing: ['idle', 'listing', 'reading'],
+    reading: ['idle', 'listing', 'reading'],
+    applying: ['idle', 'listing']
+};
+FX.Activity.prototype.allowed = function (from, to) {
+    return FX.U.contains(FX.Activity.ALLOWED[from] || [], to);
+};
+FX.Activity.prototype.enter = function (phase) {
+    FX.U.assert(FX.U.contains(FX.Activity.PHASES, phase), 'Unknown activity phase: ' + phase);
+    var from = this.phase;
+    if (!this.allowed(from, phase)) {
+        this.violations++;
+        if (this.onViolation) {
+            try { this.onViolation(from, phase); } catch (ignoredObserver) {}
+        }
+    }
+    this.phase = phase;
+    return from;
+};
+FX.Activity.prototype.busy = function () {
+    return this.phase !== 'idle';
+};
+FX.Activity.prototype.cancellable = function () {
+    return this.phase === 'listing' || this.phase === 'reading';
 };
 
 // MODULE: ui/presentation.js
@@ -4431,6 +4967,10 @@ FX.Presentation = (function () {
                 r.reasons.push('incompatible control options or ranges');
             }
             if (r.row && r.control) { r.row.control = FX.U.clone(r.control); }
+            // Presentation hint only: values stay numeric 0/1 when written.
+            r.toggle = !r.unknownValues && FX.Parameters.isToggle(r.row, r.values,
+                instances.length ? instances[0].matchName : null);
+            if (r.row && r.toggle) { r.row.toggle = true; }
             r.category = 'Cannot edit safely';
             if (r.safe) {
                 r.category =
@@ -4541,7 +5081,7 @@ FX.Presentation = (function () {
         var out = {
                 action: 'none',
                 message:
-                    'Select an effect occurrence, or choose View > Layer to add an effect.',
+                    'Select an effect, or choose View > Layers to add an effect to a layer.',
                 same: true,
                 analyzed: true
             },
@@ -4550,7 +5090,7 @@ FX.Presentation = (function () {
             j, states, properties, config, profile;
         if (!fresh) {
             out.action = 'scan';
-            out.message = 'Choose a composition and scan its effects.';
+            out.message = 'Choose a scope, then press Search (or Enter) to list its effects.';
             return out;
         }
         for (i = 0; i < selection.instances.length; i++) {
@@ -4608,47 +5148,43 @@ FX.Presentation = (function () {
     var help = [
         [
             'Start',
-            'Choose Active Composition, Choose Compositions or Entire Project. Search or Enter creates a Basic inventory when missing or outdated; Scan explicitly refreshes it. Basic reads existing effect identities only. Opening the panel starts no scan or task.'
+            '1. Pick a Scope: Active Composition, Choose Compositions or Entire Project.\n2. Type an effect, layer or composition name in Find and press Enter (or Search). The first search lists the effects in the scope; later searches filter that list instantly.\n3. Refresh updates the list after you change the project. Cancel (same place) stops a running update.\n\nOpening the panel reads nothing. Parameter values are only read when you ask for them.'
         ],
         [
-            'Find and edit',
-            'Search with Search or Enter, select effects of the same type and click Edit Parameters. That action reads only the selected effects when needed, then opens the editor. Fill several values and Apply once; the editor closes before confirmation and Batch. Successful edits refresh and reread only safely recovered targets. The editor stays closed; click Edit Parameters again to continue with updated values. Cancelled confirmation preserves the draft. Untouched fields never produce writes. More > Read Parameters provides inspection without opening the editor.'
+            'Edit parameters',
+            'Select one or more effects of the same type and click Edit Parameters....\n\nLeft: find a parameter by name or value; filter Editable, Has keyframes, Pending changes or Unavailable.\nRight: the selected parameter, its current values and the New value field. Vectors show X/Y/Z; colors show R/G/B/A from 0 to 1, a hex field and Pick... for the system color picker. On/off parameters show a checkbox; Number... edits them as a number and Checkbox switches back. Decimal commas are accepted (20,5).\nBottom: every pending change. Apply N changes sends them in one batch after a confirmation that lists each parameter, its current values and the new value.\n\n* marks a pending change, ! a value to correct. Leave a field blank to keep each effect\'s value. Each pending change must apply to every selected effect; otherwise Apply is blocked and View targets explains why.'
+        ],
+        [
+            'Keyframes',
+            'Keyframes are never removed unless you check Remove keyframes for that parameter and confirm again with the key count. With the box checked, a blank value keeps each current value as a fixed value; a new value replaces all of them. Expressions, locked layers and protected fields are never changed. Inspect Animation... (More) is read-only.'
         ],
         [
             'Selection',
-            'Selected results use the native highlight color on every selected row. Click replaces the work selection. Ctrl-click toggles one occurrence, layer or group. Shift-click selects a range of visible rows of the same kind; Ctrl+Shift adds that range. [x] marks selected members; [-] marks partially selected groups; [ ] is unselected. Only marked results matching the current filters are operated on. Double-click a group, or use Left/Right, to collapse/expand it. Select Results explicitly selects matching results across pages. Clear Selection removes all choices, including hidden ones. More... > Selection... offers Select All and Invert Selection.'
+            'Click selects one result. Ctrl-click adds or removes; Shift-click selects a range; Ctrl+Shift adds a range. [x] marks selected rows, [-] a partially selected group. Select Results selects everything that matches the current search, including other pages. Double-click a group (or Left/Right) to collapse or expand it. Actions only use selected results that match the current search and filters.'
         ],
         [
-            'Groups and layers',
-            'View lists Effects, Groups, then Layer. Groups compares occurrences by configuration after Read Parameters, never a set of different effects. More... > Grouping... chooses configuration, layer type or selected-parameter grouping without opening dialogs on View changes. Matching settings requires full comparable coverage; Readable settings match / Partial contains unknown data, including animation. Not analyzed is not equality. Decorative/blank instance names display matchName; Details preserves the original and can explicitly look up its registered name. Previous/Next displays 200 records per page; group selection may include off-page members shown in the counter and confirmation.'
-        ],
-        [
-            'Editor',
-            'Find parameter filters words in memory. Filters include Editable, Has keyframes, Pending changes and Unavailable. * marks a pending change; ! marks an invalid value that must be corrected before Apply. The parameter title repeats this state. Search preserves all pending edits; review the pending table and apply several parameters in one batch. Previous values includes static and keyframed current values with effect counts; View targets shows each value. Pending changes and confirmation show previous -> new values. Every pending parameter must apply to all selected effects; otherwise Apply is blocked with guidance. Dropdowns use host option names when available (AE 26+) or a verified compatibility profile; unknown options are never invented. View targets explains each occurrence. Clear this change / Clear all changes only discard pending edits. Keyframe removal includes single keys, is OFF by default and requires separate final consent. With removal checked, blank / Keep original clears keys and retains each current value; entering a value replaces every selected value. Expressions, locks, host Compositing Options, known internal fields and opaque data remain protected. AI Color Match exposes only verified Intensity. Cancel writes nothing.'
+            'Views and groups',
+            'View > Effects lists each effect. Groups compares effects of the same type by their parameter values (read them first with More > Read Parameters). Layers also lists layers without effects, for Add Effect.... More > Grouping... chooses how groups are formed. Lists longer than 200 rows have Previous/Next pages.'
         ],
         [
             'Copy and presets',
-            'More > Copy Parameters... chooses an analyzed source and static rows for a frozen session clipboard. Select analyzed destinations of the same matchName and use Paste Parameters...; confirmation precedes writes. Save Effect Preset... stores those chosen rows for one effect, with omissions explicit. Presets... edits values, renames, deletes and imports/exports the data-only JSON library with backups and conflict checks. Apply to selected effects uses matching types only. Add Effect... > Saved presets creates NEW instances and sets their static rows; it does not replace existing effects. A failed write may leave the newly created instance: inspect Results before retrying. Presets do not contain sets, expressions or animation.'
+            'More > Copy Parameters... copies chosen static values; select effects of the same type and use Paste Parameters.... Copy From Another Effect... applies values from a reference effect. Save Effect Preset... stores chosen values; Presets... edits (several values per save), renames, imports and exports them. Add Effect... > Saved presets adds a NEW effect with those values; existing effects are not replaced. Presets never contain animation or expressions.'
         ],
         [
             'More actions',
-            'More... has direct buttons, closes before a work dialog, and requires applicable targets. Copy Settings From... prefers analyzed reference data; Effect Controls reference explicitly reads the selected AE effect. Compare... supports selected static differences A/B. Enable, Disable and Add Effect are direct actions. Remove remains in More. All mutations require confirmation. Layers that cannot host effects are refused safely. Enabled is not a license command. Remove deletes entire effects including animation. Details preserves the original instance name and technical identity.'
+            'Enable, Disable and Add Effect... are on the panel. More... holds the rest: Read Parameters, Copy/Paste Parameters, Compare..., Inspect Animation..., Remove Effects, Selection..., Grouping..., Details... and Diagnostics.... Every change asks for confirmation; Enter in a confirmation cancels, so applying always needs a click.'
         ],
         [
-            'Refresh and safety',
-            'Successful operations refresh Basic identities and preserve Results. Successful parameter edits/copies also reread only safely recovered edited effects, as part of that edit request; other effects are not analyzed. Manual Scan/Refresh remains Basic only. Cancelling the follow-up update does not undo applied values. Read failure preserves Results and requires explicit recovery; uncertain writes never trigger automatic retry. Target identity, locks, expressions and protected fields are still checked. Keyframes are preserved unless removal is explicitly confirmed. Undo is one group per operation; failures may be partial.'
-        ],
-        [
-            'Animation',
-            'Inspect Animation... is read-only and explicitly reads chosen paths of one or two occurrences. Its table lists time, value and curve with supported ease/interpolation/spatial details. Edit Parameters can explicitly remove ALL keyframes of a chosen supported numeric parameter and apply a fixed value or keep each current value. A single keyframe can also be cleared. It does not move or change individual keys, copy animation or remove expressions. A separate final consent shows key counts. Unknown is never Static.'
+            'Safety and Undo',
+            'Every operation is one Undo step (Edit > Undo). Before writing, every target is checked again; after writing, each value is read back. Values that After Effects stores at its own precision (for example colors) are accepted; real rounding or clamping is reported. Uncertain writes are never retried automatically: open Results... and Refresh before trying again. After a successful edit the list is kept and only the edited effects are read again; Remove and Add Effect relist the scope.'
         ],
         [
             'Troubleshooting',
-            'Cancel removes queued work, but a synchronous host call cannot be interrupted until it returns. Locate chooses one Timeline composition. Help > Diagnostics... works without selection. No licensing data is requested or activation test run. Licensing prompts and host stalls have no established cause. Short docks have a vertical scrollbar; Page Up/Down works outside text fields and the results list. Wheel forwarding depends on host event delivery; the results list keeps native scrolling. Version is inside Help and Diagnostics. Native docking/layout and commercial testing remain pending.'
+            'After Effects can pause while a long operation runs; the progress bar shows how far it got. Check for updates needs Preferences > Scripting & Expressions > Allow Scripts to Write Files and Access Network and may pause AE for a few seconds; Open Releases always works. Locate selects the layer in one Timeline. Help > Diagnostics... lists technical events for bug reports; it contains no project values or license data.'
         ],
         [
-            'Glow: 18 effects',
-            'Search Glow, Select Results, Read Parameters. Choose Groups (default Configuration / layer type): Text Intensity 50 (3), Adjustment 6 (12), Adjustment 7 (3). Select only group 7, Edit Parameters..., type Intensity 6, Apply and confirm. Basic Refresh runs after successful changes. Read Parameters explicitly to regroup new configurations. Radius and Text remain unchanged. Values come from the project, not this example.'
+            'Example: 18 Glows',
+            'Find: Glow, Enter. Select Results. View > Groups, then More > Read Parameters: groups show Intensity 50 (3), 6 (12), 7 (3). Click group 7, Edit Parameters..., set Intensity to 6, Apply 1 change, Apply to 3 effects. The list refreshes; Radius and other effects stay unchanged.'
         ]
     ];
     // Pure geometry: make overflow explicit instead of relying on a dock's minimum size.
@@ -4660,7 +5196,8 @@ FX.Presentation = (function () {
                 action = results && wrap ? 60 : 28,
                 direct = wrap ? 60 : 28,
                 sections = 5,
-                fixed = 170 + 34 + 28 + action + direct + 12;
+                // 3 control rows (3 x 32) + status and progress (42).
+                fixed = 138 + 34 + 28 + action + direct + 12;
             if (pager) {
                 fixed += 28;
                 sections++;
@@ -4755,6 +5292,130 @@ FX.Presentation = (function () {
         reportSummary: reportSummary,
         help: help
     };
+})();
+
+// MODULE: ui/confirmation.js
+// Pure description of a pending batch for the confirmation dialog.
+// No ScriptUI or host access: the panel renders the returned data.
+FX.Confirmation = (function () {
+    function describe(targets, id, options, plan) {
+        options = options || {};
+        var title = {
+                enable: 'Enable effects',
+                disable: 'Disable effects',
+                remove: 'Remove effects',
+                apply: 'Add effect',
+                copy: 'Copy settings',
+                set: 'Change parameters'
+            }[id] || id,
+            description = '',
+            changeRows = [],
+            partial = false,
+            i,
+            j;
+        if (options && options.rows && id !== 'apply') {
+            title = 'Change ' + FX.Presentation.effectName(targets[0]);
+            for (i = 0; i < options.rows.length; i++) {
+                var change = options.rows[i],
+                    values = {},
+                    distinct = [],
+                    count = 0,
+                    removedKeys = 0,
+                    animatedTargets = 0,
+                    authorized,
+                    ai,
+                    old,
+                    prior,
+                    key;
+                for (j = 0; j < targets.length; j++) {
+                    prior = FX.Presentation.parameterStatus(targets[j], change.path);
+                    if (prior.hasValue) {
+                        key = '$' + FX.JSON.stringify(prior.currentValue);
+                        if (!values[key]) { values[key] = 0; distinct.push(prior.currentValue); }
+                        values[key]++;
+                    }
+                    old = FX.Config.row(
+                        targets[j].configuration,
+                        change.path
+                    );
+                    if (
+                        old &&
+                        old.valueType === change.valueType &&
+                        !targets[j].locked
+                    ) {
+                        count++;
+                    }
+                    authorized = (plan.keyframeRemovals || {})['$' + FX.Model.effectKey(targets[j])] || [];
+                    for (ai = 0; ai < authorized.length; ai++) {
+                        if (FX.Config.key(authorized[ai].path) === FX.Config.key(change.path)) {
+                            count++;
+                            animatedTargets++;
+                            removedKeys += authorized[ai].keyCount;
+                        }
+                    }
+                }
+                var fromParts = [], vi;
+                for (vi = 0; vi < distinct.length; vi++) {
+                    fromParts.push(FX.Parameters.display(change, distinct[vi]) +
+                        ' (' + values['$' + FX.JSON.stringify(distinct[vi])] + ')');
+                }
+                var from = fromParts.length ? fromParts.join('; ') : 'Unavailable';
+                changeRows.push([
+                    change.name,
+                    from,
+                    change.keepCurrent ? 'Keep each current value; clear keyframes' : FX.Parameters.display(change)
+                ]);
+                if (removedKeys) {
+                    description += 'Remove ' + removedKeys + ' keyframes in ' + animatedTargets +
+                        ' effects for ' + change.name + (change.keepCurrent ? '; keep each current value.\n' : '; replace with this fixed value.\n');
+                }
+                if (count < targets.length) {
+                    FX.U.assert(!options.requireAll, 'Cannot update all selected effects; adjust the selection or pending changes');
+                    partial = true;
+                    description +=
+                        'Expected: ' +
+                        count +
+                        '/' +
+                        targets.length +
+                        ' effects; others preserved.\n';
+                }
+            }
+            description += 'Other parameters unchanged.\n';
+            if (options.requireAll) { description += 'Every pending parameter applies to all ' + targets.length + ' selected effects.\n'; }
+        } else if (id === 'remove') {
+            description =
+                'Remove entire effects, including keyframes and expressions.\n';
+        } else if (id === 'apply') {
+            description =
+                'Apply ' +
+                (options.displayName || options.matchName) +
+                '.\n';
+            if (options.rows) {
+                partial = true;
+                description +=
+                    'Preset: ' +
+                    options.presetName +
+                    '. Adds a NEW instance and sets ' +
+                    options.rows.length +
+                    ' static parameters. Unsupported parameters may be skipped. Existing effects are not replaced. A failed write can leave the new instance in the project.\n';
+            }
+        }
+        description +=
+            'Affected: ' +
+            targets.length +
+            (id === 'apply' ? ' target layers / ' : ' effects / ') +
+            plan.layerCount +
+            ' layers / ' +
+            plan.compCount +
+            ' compositions.';
+        return {
+            title: title,
+            description: description,
+            changeRows: changeRows,
+            partial: partial
+        };
+    }
+    return { describe: describe };
 })();
 
 // MODULE: ui/results.js
@@ -4977,129 +5638,511 @@ FX.Results = function (parent) {
     return tree;
 };
 
+// MODULE: ui/help.js
+// Help, version and update checks. Receives ScriptUI factories from the
+// panel (like FX.Editor), so it never touches panel state directly.
+FX.HelpDialog = (function () {
+    // Returns true when the person asked to open Diagnostics next.
+    function open(ui) {
+        var d = ui.createDialog(FX.I18N.t('FXHX Help')),
+            adapter = ui.adapter,
+            diagnostics = ui.diagnostics,
+            row = ui.row,
+            button = ui.button;
+        var installedVersion = FX.Updates.installed;
+        d.add('statictext', undefined, 'FXHX ' + installedVersion);
+        d.orientation = 'column';
+        d.alignChildren = 'fill';
+        var index = ui.dropdown(d, []),
+            i;
+        for (i = 0; i < FX.Presentation.help.length; i++) {
+            index.add('item', FX.Presentation.help[i][0]);
+        }
+        var text = d.add('edittext', undefined, '', {
+            multiline: true,
+            scrolling: true,
+            readonly: true
+        });
+        text.preferredSize = [440, 300];
+        index.onChange = function () {
+            if (index.selection) {
+                text.text = FX.Presentation.help[index.selection.index][1];
+            }
+        };
+        index.selection = 0;
+        index.onChange();
+        var updateStatus = d.add('statictext', undefined, FX.I18N.t('Check GitHub for a newer version. Only runs when you click Check for updates.'), { multiline: true });
+        updateStatus.preferredSize = [440, 42];
+        updateStatus.fxUpdateStatus = true;
+        var updateActions = row(d), checkingUpdates = false,
+            checkUpdates = button(updateActions, 'Check for updates', function () {
+                if (checkingUpdates || ui.disposed()) { return; }
+                checkingUpdates = true;
+                checkUpdates.enabled = false;
+                updateStatus.text = 'Checking GitHub... After Effects may pause for up to 10 seconds.';
+                try {
+                    d.update();
+                } catch (ignoredUpdatePaint) {}
+                try {
+                    var release = adapter.checkForUpdates(installedVersion);
+                    if (release.unpublished) {
+                        updateStatus.text = 'No published release is available yet. Installed: ' + installedVersion + '.';
+                    } else if (release.available) {
+                        updateStatus.text = 'Update available: ' + release.version + ' (installed: ' + installedVersion + '). Open Releases to download it.';
+                    } else {
+                        updateStatus.text = 'You are up to date. Installed: ' + installedVersion + '; latest release: ' + release.version + '.';
+                    }
+                } catch (updateError) {
+                    updateStatus.text = adapter.networkAllowed && adapter.networkAllowed() === false ?
+                        'Network access is off. Enable Preferences > Scripting & Expressions > Allow Scripts to Write Files and Access Network, or open Releases.' :
+                        'Could not check for updates. Check your connection or open Releases in your browser.';
+                    diagnostics.error('check-updates', updateError);
+                } finally {
+                    checkingUpdates = false;
+                    checkUpdates.enabled = true;
+                }
+            });
+        button(updateActions, 'Open Releases', function () {
+            try { adapter.openReleases(); }
+            catch (browserError) { updateStatus.text = 'Open https://github.com/datacg/fxhx/releases in your browser.'; }
+        });
+        var openDiagnostics = false;
+        button(d, 'Diagnostics...', function () {
+            openDiagnostics = true;
+            d.close(1);
+        });
+        button(d, 'Close', function () {
+            d.close(0);
+        });
+        ui.showDialog(d);
+        return openDiagnostics;
+    }
+    return { open: open };
+})();
+
+// MODULE: ui/valueinput.js
+// Shared ScriptUI value input used by the parameter editor and the preset
+// editor. It owns no host objects: callers pass the row metadata and read
+// back texts/menu choices. Parsing accepts decimal commas (20,5).
+FX.ValueInput = (function () {
+    var LABELS = {
+        OneD: [''],
+        TwoD: ['X', 'Y'],
+        TwoD_SPATIAL: ['X', 'Y'],
+        ThreeD: ['X', 'Y', 'Z'],
+        ThreeD_SPATIAL: ['X', 'Y', 'Z'],
+        COLOR: ['R', 'G', 'B', 'A']
+    };
+    function dimension(valueType) {
+        if (valueType === 'OneD') { return 1; }
+        if (valueType === 'COLOR') { return 4; }
+        if (valueType === 'TwoD' || valueType === 'TwoD_SPATIAL') { return 2; }
+        return 3;
+    }
+    function labels(valueType) {
+        return LABELS[valueType] || ['X', 'Y', 'Z'];
+    }
+    function isMenu(row) {
+        return !!(row && row.control && row.control.kind === 'menu');
+    }
+    // texts: one string per component. Returns a number or an array.
+    function parse(row, texts) {
+        var size = dimension(row.valueType), names = labels(row.valueType), values = [], n, label;
+        for (n = 0; n < size; n++) {
+            label = row.name || 'Value';
+            if (size > 1) { label += ' ' + names[n]; }
+            FX.U.assert(/\S/.test(texts[n] || ''), 'Enter every component for ' + (row.name || 'this parameter'));
+            values.push(FX.U.parseNumber(texts[n], label));
+        }
+        return size === 1 ? values[0] : values;
+    }
+    function format(n) {
+        // Short, locale-neutral display for prefilled fields.
+        return String(Math.round(n * 10000) / 10000);
+    }
+    function texts(value) {
+        var out = [], i;
+        if (FX.U.array(value)) {
+            for (i = 0; i < value.length; i++) { out.push(format(value[i])); }
+        } else if (typeof value === 'number') {
+            out.push(format(value));
+        }
+        return out;
+    }
+    function hexToColor(text) {
+        var s = FX.U.trim(text).replace(/^#/, ''), n;
+        FX.U.assert(/^[0-9a-fA-F]{6}$/.test(s), 'Use a hex color such as #FF8800');
+        n = parseInt(s, 16);
+        return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+    }
+    function colorToHex(rgb) {
+        var out = '#', i, c;
+        for (i = 0; i < 3; i++) {
+            c = Math.max(0, Math.min(255, Math.round(Number(rgb[i]) * 255)));
+            out += (c < 16 ? '0' : '') + c.toString(16).toUpperCase();
+        }
+        return out;
+    }
+    function create(parent, o) {
+        o = o || {};
+        var host = parent.add('group'), i, current = null, enabled = true, notify = null, syncing = false;
+        host.orientation = 'stack';
+        host.alignment = ['fill', 'center'];
+        host.alignChildren = ['fill', 'center'];
+        host.minimumSize.height = 24;
+        var numbers = host.add('group');
+        numbers.orientation = 'row';
+        numbers.spacing = 4;
+        numbers.alignChildren = ['left', 'center'];
+        var fields = [], names = [];
+        for (i = 0; i < 4; i++) {
+            names.push(numbers.add('statictext', undefined, FX.I18N.t('X')));
+            names[i].minimumSize.width = 10;
+            fields.push(numbers.add('edittext', undefined, ''));
+            fields[i].characters = 7;
+            fields[i].minimumSize = [56, 24];
+            if (o.fieldFlag) { fields[i][o.fieldFlag] = true; }
+        }
+        var hex = numbers.add('edittext', undefined, '');
+        hex.characters = 8;
+        hex.helpTip = 'Hex color, e.g. #FF8800. Fills R, G and B (0-1).';
+        hex.fxHexInput = true;
+        var pick = numbers.add('button', undefined, FX.I18N.t('Pick...'));
+        pick.fxTitle = 'Pick...';
+        pick.helpTip = 'Open the system color picker.';
+        pick.preferredSize.width = 52;
+        // Way back from Number... for parameters detected as on/off.
+        var asCheckbox = numbers.add('button', undefined, FX.I18N.t('Checkbox'));
+        asCheckbox.fxTitle = 'Checkbox';
+        asCheckbox.helpTip = 'Edit this parameter with an on/off checkbox again.';
+        var menu = host.add('dropdownlist', undefined, FX.I18N.list([]));
+        menu.minimumSize = [180, 24];
+        menu.preferredSize.width = 230;
+        if (o.menuFlag) { menu[o.menuFlag] = true; }
+        // On/off parameters: a checkbox that writes "1"/"0" into the first
+        // (hidden) number field, so drafts, parsing and writes stay numeric.
+        var toggleGroup = host.add('group');
+        toggleGroup.orientation = 'row';
+        toggleGroup.alignChildren = ['left', 'center'];
+        toggleGroup.spacing = 8;
+        var toggle = toggleGroup.add('checkbox', undefined, FX.I18N.t('On'));
+        toggle.fxToggleInput = true;
+        var toggleState = toggleGroup.add('statictext', undefined, '');
+        toggleState.preferredSize.width = 170;
+        var asNumber = toggleGroup.add('button', undefined, FX.I18N.t('Number...'));
+        asNumber.fxTitle = 'Number...';
+        asNumber.helpTip = 'Edit this parameter as a number instead of on/off.';
+        var numericOverride = {}, lastValues = null, lastMenu = null, currentHint = null;
+        function toggleMode() {
+            return !!current && !!current.toggle && !numericOverride['$' + FX.Config.key(current.path || [])];
+        }
+        function describeToggle() {
+            var draft = fields[0].text;
+            if (draft === '1' || draft === '0') {
+                toggleState.text = FX.I18N.t(draft === '1' ? 'Will set: On' : 'Will set: Off');
+            } else if (currentHint === 1 || currentHint === 0) {
+                toggleState.text = FX.I18N.t(currentHint === 1 ? 'Unchanged (now On)' : 'Unchanged (now Off)');
+            } else {
+                toggleState.text = FX.I18N.t('Unchanged (mixed)');
+            }
+        }
+        toggle.onClick = function () {
+            if (syncing) { return; }
+            fields[0].text = toggle.value ? '1' : '0';
+            describeToggle();
+            changed();
+        };
+        asNumber.onClick = function () {
+            if (!current) { return; }
+            numericOverride['$' + FX.Config.key(current.path || [])] = true;
+            setRow(current, readTexts(), lastMenu, { current: currentHint });
+            changed();
+        };
+        asCheckbox.onClick = function () {
+            if (!current) { return; }
+            delete numericOverride['$' + FX.Config.key(current.path || [])];
+            // Only 0/1 can be shown by the checkbox; other numbers are dropped.
+            var texts = readTexts();
+            if (texts[0] !== '0' && texts[0] !== '1') { texts = ['']; }
+            setRow(current, texts, lastMenu, { current: currentHint });
+            changed();
+        };
+        function changed() {
+            if (!syncing && notify) { notify(); }
+        }
+        function isColor() { return !!current && current.valueType === 'COLOR'; }
+        function syncHex() {
+            if (!isColor()) { return; }
+            try {
+                hex.text = colorToHex([FX.U.parseNumber(fields[0].text), FX.U.parseNumber(fields[1].text),
+                    FX.U.parseNumber(fields[2].text)]);
+            } catch (ignoredIncomplete) {
+                hex.text = '';
+            }
+        }
+        function setColor(rgb) {
+            syncing = true;
+            try {
+                for (var c = 0; c < 3; c++) { fields[c].text = format(rgb[c]); }
+                if (!/\S/.test(fields[3].text)) { fields[3].text = '1'; }
+                hex.text = colorToHex(rgb);
+            } finally { syncing = false; }
+            changed();
+        }
+        hex.onChange = function () {
+            if (syncing || !isColor() || !/\S/.test(hex.text)) { return; }
+            try {
+                setColor(hexToColor(hex.text));
+            } catch (badHex) {
+                if (o.onError) { o.onError(badHex); }
+            }
+        };
+        pick.onClick = function () {
+            if (typeof $ === 'undefined' || typeof $.colorPicker !== 'function') {
+                if (o.onError) { o.onError(new Error('Color picker unavailable; type values or a hex color.')); }
+                return;
+            }
+            var initial = -1, picked;
+            try {
+                var rgb = hexToColor(hex.text);
+                initial = (Math.round(rgb[0] * 255) << 16) | (Math.round(rgb[1] * 255) << 8) | Math.round(rgb[2] * 255);
+            } catch (ignoredStart) {}
+            picked = $.colorPicker(initial);
+            if (typeof picked === 'number' && picked >= 0) {
+                setColor([((picked >> 16) & 255) / 255, ((picked >> 8) & 255) / 255, (picked & 255) / 255]);
+            }
+        };
+        for (i = 0; i < fields.length; i++) {
+            fields[i].onChanging = fields[i].onChange = function () {
+                syncHex();
+                changed();
+            };
+        }
+        menu.onChange = changed;
+        // info.current: the shared current value when all targets agree.
+        function setRow(row, values, menuValue, info) {
+            var size, n, c, item, rowLabels, asToggle;
+            current = row || null;
+            lastValues = values;
+            lastMenu = menuValue;
+            currentHint = info && typeof info.current === 'number' ? info.current : null;
+            syncing = true;
+            try {
+                menu.removeAll();
+                menu.add('item', FX.I18N.t(o.keepLabel || 'Keep original values'));
+                menu.selection = 0;
+                if (isMenu(row)) {
+                    for (n = 0; n < row.control.choices.length; n++) {
+                        c = row.control.choices[n];
+                        item = menu.add('item', c.label);
+                        item.fxValue = c.value;
+                        if (menuValue === c.value) { menu.selection = item; }
+                    }
+                }
+                size = row ? dimension(row.valueType) : 0;
+                rowLabels = row ? labels(row.valueType) : [];
+                menu.visible = isMenu(row);
+                numbers.visible = !!row && !isMenu(row) && size > 0;
+                for (n = 0; n < fields.length; n++) {
+                    fields[n].visible = !isMenu(row) && n < size;
+                    names[n].visible = fields[n].visible && size > 1;
+                    names[n].text = rowLabels[n] || '';
+                    fields[n].text = values && values[n] !== undefined ? values[n] : '';
+                }
+                hex.visible = pick.visible = !!row && row.valueType === 'COLOR' && !isMenu(row);
+                hex.text = '';
+                syncHex();
+                asToggle = toggleMode();
+                toggleGroup.visible = asToggle;
+                asCheckbox.visible = !!row && !!row.toggle && !asToggle;
+                if (asToggle) {
+                    numbers.visible = false;
+                    if (fields[0].text === '1' || fields[0].text === '0') {
+                        toggle.value = fields[0].text === '1';
+                    } else {
+                        fields[0].text = '';
+                        toggle.value = currentHint === 1;
+                    }
+                    describeToggle();
+                }
+                setEnabled(enabled);
+            } finally { syncing = false; }
+        }
+        function setEnabled(flag) {
+            enabled = !!flag;
+            menu.enabled = enabled;
+            hex.enabled = pick.enabled = enabled;
+            toggle.enabled = asNumber.enabled = asCheckbox.enabled = enabled;
+            for (var n = 0; n < fields.length; n++) { fields[n].enabled = enabled; }
+        }
+        function readTexts() {
+            var out = [], n, size = current ? dimension(current.valueType) : 0;
+            for (n = 0; n < size; n++) { out.push(fields[n].text); }
+            return out;
+        }
+        function hasText() {
+            var t = readTexts(), n;
+            for (n = 0; n < t.length; n++) { if (/\S/.test(t[n])) { return true; } }
+            return false;
+        }
+        function menuChoice() {
+            var v = menu.selection ? menu.selection.fxValue : null;
+            return typeof v === 'number' ? v : null;
+        }
+        function value() {
+            FX.U.assert(current, 'Choose a parameter');
+            if (isMenu(current)) {
+                var v = menuChoice();
+                FX.U.assert(v !== null, 'Choose a dropdown option');
+                return v;
+            }
+            return parse(current, readTexts());
+        }
+        return {
+            host: host, fields: fields, labels: names, menu: menu, hex: hex, pick: pick,
+            toggle: toggle, toggleState: toggleState, asNumber: asNumber,
+            isToggle: toggleMode,
+            setRow: setRow, setEnabled: setEnabled, texts: readTexts, hasText: hasText,
+            menuChoice: menuChoice, value: value,
+            onChange: function (fn) { notify = fn; }
+        };
+    }
+    return {
+        create: create, parse: parse, texts: texts, dimension: dimension, labels: labels,
+        hexToColor: hexToColor, colorToHex: colorToHex, isMenu: isMenu
+    };
+})();
+
 // MODULE: ui/editor.js
 // ScriptUI parameter editor. Host reads and writes belong to the caller.
+// Layout: parameter list on the left, inspector for the highlighted
+// parameter on the right, pending changes and Apply along the bottom.
 FX.Editor = (function () {
     function open(o) {
         var d = o.dialog, rows = o.rows, drafts = FX.U.clone(o.drafts || {}),
             active = null, loading = true, filling = false, shown = false,
-            result = null, fields = [], i, apply, updatingDrafts = false,
+            result = null, apply, updatingDrafts = false,
             validationErrors = [], invalidDrafts = {}, visibleRows = [];
         d.orientation = 'column';
         d.alignChildren = 'fill';
-        d.minimumSize = [520, 280];
+        d.minimumSize = [640, 360];
         d.add('statictext', undefined, FX.Presentation.effectName(o.instances[0]) +
             ' - ' + o.instances.length + ' effects / ' + o.layerCount + ' layers');
-        var hint = d.add('statictext', undefined,
-            '* marks a pending change; ! needs correction. Change several parameters, then Apply once. Blank values keep originals.',
-            { multiline: true });
-        hint.preferredSize = [600, 32];
-        var searchRow = o.row(d);
-        searchRow.add('statictext', undefined, 'Find parameter');
+        var main = o.row(d);
+        main.alignment = ['fill', 'fill'];
+        main.alignChildren = ['fill', 'fill'];
+        main.spacing = 10;
+        // Left: find and choose a parameter.
+        var left = main.add('group');
+        left.orientation = 'column';
+        left.alignment = ['fill', 'fill'];
+        left.alignChildren = ['fill', 'top'];
+        left.spacing = 4;
+        var searchRow = o.row(left);
         var search = searchRow.add('edittext', undefined, '');
         search.fxParameterSearch = true;
         search.alignment = ['fill', 'center'];
-        search.characters = 25;
+        search.characters = 14;
+        search.helpTip = 'Find parameter by name or value. Every word must match.';
         o.button(searchRow, 'Clear search', function () {
             search.text = '';
             rebuildList();
         });
         var filter = searchRow.add('dropdownlist', undefined,
-            ['All parameters', 'Editable', 'Has keyframes', 'Pending changes', 'Unavailable']);
+            FX.I18N.list(['All parameters', 'Editable', 'Has keyframes', 'Pending changes', 'Unavailable']));
         filter.selection = 0;
         filter.fxParameterFilter = true;
-        var count = d.add('statictext', undefined, ''),
-            list = d.add('listbox', undefined, [], {
+        var count = left.add('statictext', undefined, ''),
+            list = left.add('listbox', undefined, [], {
                 numberOfColumns: 4, showHeaders: true,
-                columnTitles: ['Parameter', 'Current value', 'New value', 'Applies to'],
-                columnWidths: [205, 130, 125, 110]
+                columnTitles: FX.I18N.list(['Parameter', 'Current', 'New value', 'Applies to']),
+                columnWidths: [150, 80, 80, 66]
             });
         list.fxParameterList = true;
+        list.alignment = ['fill', 'fill'];
         list.helpTip = '* = pending change. ! = invalid value. Search and filters preserve all pending changes.';
-        list.preferredSize = [600, 132];
-        var title = d.add('statictext', undefined, ''),
-            current = d.add('statictext', undefined, '', { multiline: true });
-        current.preferredSize = [600, 60];
-        var previousValues = d.add('edittext', undefined, '', { multiline: true, scrolling: true, readonly: true });
-        previousValues.preferredSize = [600, 44];
+        list.preferredSize = [380, 250];
+        left.add('statictext', undefined, FX.I18N.t('* pending change   ! needs correction'));
+        // Right: inspector for the highlighted parameter.
+        var inspector = main.add('panel', undefined, FX.I18N.t('Selected parameter'));
+        inspector.orientation = 'column';
+        inspector.alignment = ['fill', 'fill'];
+        inspector.alignChildren = ['fill', 'top'];
+        inspector.preferredSize.width = 330;
+        inspector.margins = [10, 14, 10, 10];
+        var title = inspector.add('statictext', undefined, '');
+        try {
+            title.graphics.font = ScriptUI.newFont(title.graphics.font.name, 'BOLD', title.graphics.font.size);
+        } catch (ignoredFont) {}
+        var current = inspector.add('statictext', undefined, '', { multiline: true });
+        current.preferredSize = [310, 62];
+        var previousValues = inspector.add('edittext', undefined, '', { multiline: true, scrolling: true, readonly: true });
+        previousValues.preferredSize = [310, 44];
         previousValues.fxPreviousValues = true;
-        var animationRow = o.row(d),
-            removeAnimation = animationRow.add('checkbox', undefined, 'Remove keyframes (this parameter, all selected effects)');
+        var animationRow = o.row(inspector),
+            removeAnimation = animationRow.add('checkbox', undefined, FX.I18N.t('Remove keyframes (all selected effects)'));
         removeAnimation.fxRemoveAnimation = true;
         removeAnimation.value = false;
-        var fieldRow = o.row(d);
-        fieldRow.add('statictext', undefined, 'New value');
-        // Stack alternative editors without collapsing their dimensions. A
-        // zero-sized hidden EditText can retain that size after relayout in AE.
-        var valueHost = fieldRow.add('group');
-        valueHost.orientation = 'stack';
-        valueHost.alignment = ['fill', 'center'];
-        valueHost.alignChildren = ['fill', 'center'];
-        valueHost.minimumSize.height = 24;
-        var numberInputs = o.row(valueHost);
-        numberInputs.alignChildren = ['left', 'center'];
-        for (i = 0; i < 4; i++) {
-            fields.push(numberInputs.add('edittext', undefined, ''));
-            fields[i].characters = 9;
-            fields[i].minimumSize = [78, 24];
-            fields[i].fxParameterInput = true;
-        }
-        var menu = valueHost.add('dropdownlist', undefined, []);
-        menu.fxParameterMenu = true;
-        menu.minimumSize = [180, 24];
-        menu.preferredSize.width = 230;
-        var fieldHint = d.add('statictext', undefined, '', { multiline: true });
-        fieldHint.preferredSize = [600, 30];
-        var pendingTitle = d.add('statictext', undefined, ''),
-            changes = d.add('listbox', undefined, [], {
-                numberOfColumns: 3, showHeaders: true,
-                columnTitles: ['Pending parameter', 'Previous -> New value', 'Action'],
-                columnWidths: [140, 270, 190]
-            });
-        changes.fxPendingChanges = true;
-        changes.preferredSize = [600, 60];
-        var validation = d.add('statictext', undefined, '', { multiline: true });
-        validation.preferredSize = [600, 32];
-        var actions = o.row(d);
-        o.button(actions, 'View targets', showTargets);
-        o.button(actions, 'Clear this change', function () {
+        removeAnimation.helpTip = 'Clears the keyframes of this parameter in every selected effect. Blank value keeps each current value.';
+        inspector.add('statictext', undefined, FX.I18N.t('New value'));
+        var input = FX.ValueInput.create(inspector, {
+            fieldFlag: 'fxParameterInput', menuFlag: 'fxParameterMenu',
+            onError: function (error) {
+                fieldHint.text = String(error.message || error);
+            }
+        });
+        var fieldHint = inspector.add('statictext', undefined, '', { multiline: true });
+        fieldHint.preferredSize = [310, 44];
+        var inspectorActions = o.row(inspector);
+        o.button(inspectorActions, 'View targets', showTargets);
+        o.button(inspectorActions, 'Clear this change', function () {
             loading = true;
             removeAnimation.value = false;
-            for (var n = 0; n < fields.length; n++) { fields[n].text = ''; }
-            menu.selection = 0;
+            input.setRow(active ? active.row : null, null, null);
             loading = false;
             remember();
             load(active);
             rebuildList();
         });
-        o.button(actions, 'Clear all changes', function () {
+        // Bottom: everything that Apply will send.
+        var pendingTitle = d.add('statictext', undefined, ''),
+            changes = d.add('listbox', undefined, [], {
+                numberOfColumns: 3, showHeaders: true,
+                columnTitles: FX.I18N.list(['Pending parameter', 'Previous -> New value', 'Action']),
+                columnWidths: [160, 330, 200]
+            });
+        changes.fxPendingChanges = true;
+        changes.preferredSize = [700, 74];
+        var validation = d.add('statictext', undefined, '', { multiline: true });
+        validation.preferredSize = [700, 32];
+        var footer = o.row(d);
+        footer.alignChildren = ['fill', 'center'];
+        var applyHint = footer.add('statictext', undefined, FX.I18N.t('Apply closes the editor. To make more changes, use Edit Parameters again.'));
+        applyHint.alignment = ['fill', 'center'];
+        o.button(footer, 'Clear all changes', function () {
             drafts = {};
             save();
             load(active);
             rebuildList();
         });
-        var applyHint = d.add('statictext', undefined,
-            'Apply updates the selected effects. To make more changes, use Edit Parameters again.');
-        var footer = o.row(d);
         o.button(footer, 'Cancel', function () { remember(); d.close(0); });
         apply = o.button(footer, 'Apply', submit);
+        apply.preferredSize.width = 120;
         apply.helpTip = 'Apply all pending changes after confirmation, then close the editor. The same safely recovered selection stays ready for Edit Parameters.';
         function key(r) { return '$' + FX.Config.key(r.path); }
+        // Returns true when visibility actually changed (so layout is needed).
         function show(control, flag) {
-            control.visible = !!flag;
+            flag = !!flag;
+            if (control.visible === flag && control.fxShown === flag) { return false; }
+            control.visible = flag;
+            control.fxShown = flag;
             control.maximumSize.height = flag ? 10000 : 0;
+            return true;
         }
         function layout() {
             if (shown && !d.fxClosed) { d.layout.layout(true); }
         }
-        function isMenu(r) { return !!(r && r.row && r.row.control && r.row.control.kind === 'menu'); }
-        function dimension(r) {
-            if (!r || !r.row) { return 0; }
-            if (r.row.valueType === 'OneD') { return 1; }
-            if (r.row.valueType === 'COLOR') { return 4; }
-            if (r.row.valueType === 'TwoD' || r.row.valueType === 'TwoD_SPATIAL') { return 2; }
-            return 3;
-        }
+        function isMenu(r) { return !!(r && r.row && FX.ValueInput.isMenu(r.row)); }
         function canEdit(r) { return !!r && (r.safe || (removeAnimation.value && r.canRemoveKeyframes)); }
         function model(entry) {
             for (var n = 0; n < rows.length; n++) {
@@ -5108,7 +6151,7 @@ FX.Editor = (function () {
             return null;
         }
         function parse(entry) {
-            var p = FX.U.clone(entry.row.row), n, values = [], size = dimension(entry.row);
+            var p = FX.U.clone(entry.row.row);
             if (entry.keepCurrent) {
                 var r = model(entry);
                 FX.U.assert(r && !r.unknownValues && r.values.length, 'Current values unavailable; enter a fixed value');
@@ -5117,11 +6160,7 @@ FX.Editor = (function () {
             } else if (p.control && p.control.kind === 'menu') {
                 p.value = entry.menuValue;
             } else {
-                for (n = 0; n < size; n++) {
-                    FX.U.assert(/\S/.test(entry.texts[n] || ''), 'Enter every component for ' + entry.row.name);
-                    values.push(Number(entry.texts[n]));
-                }
-                p.value = size === 1 ? values[0] : values;
+                p.value = FX.ValueInput.parse({ valueType: p.valueType, name: entry.row.name }, entry.texts);
             }
             FX.Validate.rows([p]);
             return p;
@@ -5141,76 +6180,93 @@ FX.Editor = (function () {
                 }
             }
         }
+        function setText(target, text) {
+            if (target.text !== text) { target.text = text; }
+        }
         function refreshDrafts() {
             if (updatingDrafts) { return; }
             updatingDrafts = true;
+            var relayout = false;
             try {
-                var k, item, entry, total = 0, r, applicable, invalid = {}, label;
+                var k, item, entry, total = 0, r, applicable, invalid = {}, label, keys = [], same, n,
+                    previousText, actionText;
                 invalidDrafts = invalid;
                 validationErrors = [];
-                changes.removeAll();
                 for (k in drafts) {
-                    if (FX.U.own(drafts, k)) {
-                        entry = drafts[k];
-                        item = changes.add('item', entry.row.name);
-                        item.fxDraftKey = k;
-                        r = model(entry);
-                        item.subItems[0].text = (r ? r.previous : 'Unavailable') + ' -> ' + displayDraft(entry);
-                        item.helpTip = item.subItems[0].text;
-                        item.subItems[1].text = 'Set all selected effects';
-                        if (entry.removeKeyframes) {
-                            item.subItems[1].text = entry.keepCurrent ? 'Clear keys; keep each value' : 'Remove keys + set all values';
-                        }
-                        total++;
-                        try {
-                            parse(entry);
-                            applicable = r ? r.available : 0;
-                            if (r && entry.removeKeyframes && r.canRemoveKeyframes) { applicable += r.removable; }
-                            FX.U.assert(r && applicable === r.total,
-                                r && r.removable && !entry.removeKeyframes ?
-                                    'Remove keyframes for this parameter to update all selected effects, or clear this change.' :
-                                    'Cannot update all selected effects. View targets, resolve protected/missing parameters or change the selection.');
-                        }
-                        catch (error) {
-                            invalid[k] = true;
-                            item.subItems[1].text = 'Invalid value - correct before Apply';
-                            validationErrors.push(entry.row.name + ': ' + String(error.message || 'Invalid value'));
-                        }
+                    if (FX.U.own(drafts, k)) { keys.push(k); }
+                }
+                // Rebuilding a ListBox on every keystroke flickers in AE; only
+                // rebuild when the set of pending parameters changes.
+                same = changes.items.length === keys.length;
+                for (n = 0; same && n < keys.length; n++) {
+                    same = changes.items[n].fxDraftKey === keys[n];
+                }
+                if (!same) {
+                    changes.removeAll();
+                    for (n = 0; n < keys.length; n++) {
+                        item = changes.add('item', drafts[keys[n]].row.name);
+                        item.fxDraftKey = keys[n];
                     }
                 }
+                for (n = 0; n < keys.length; n++) {
+                    k = keys[n];
+                    entry = drafts[k];
+                    item = changes.items[n];
+                    r = model(entry);
+                    previousText = (r ? r.previous : 'Unavailable') + ' -> ' + displayDraft(entry);
+                    actionText = 'Set all selected effects';
+                    if (entry.removeKeyframes) {
+                        actionText = entry.keepCurrent ? 'Clear keys; keep each value' : 'Remove keys + set all values';
+                    }
+                    total++;
+                    try {
+                        parse(entry);
+                        applicable = r ? r.available : 0;
+                        if (r && entry.removeKeyframes && r.canRemoveKeyframes) { applicable += r.removable; }
+                        FX.U.assert(r && applicable === r.total,
+                            r && r.removable && !entry.removeKeyframes ?
+                                'Remove keyframes for this parameter to update all selected effects, or clear this change.' :
+                                'Cannot update all selected effects. View targets, resolve protected/missing parameters or change the selection.');
+                    }
+                    catch (error) {
+                        invalid[k] = true;
+                        actionText = 'Invalid value - correct before Apply';
+                        validationErrors.push(entry.row.name + ': ' + String(error.message || 'Invalid value'));
+                    }
+                    setText(item, entry.row.name);
+                    setText(item.subItems[0], previousText);
+                    setText(item.subItems[1], actionText);
+                    item.helpTip = previousText;
+                }
                 pendingTitle.text = total + ' pending parameter changes. Apply sends all of them in one batch.';
-                show(pendingTitle, total > 0);
-                show(changes, total > 0);
-                validation.text = validationErrors.join('\n');
-                show(validation, validationErrors.length > 0);
-                for (var n = 0; n < list.items.length; n++) {
+                relayout = show(pendingTitle, total > 0) || relayout;
+                relayout = show(changes, total > 0) || relayout;
+                setText(validation, validationErrors.join('\n'));
+                relayout = show(validation, validationErrors.length > 0) || relayout;
+                for (n = 0; n < list.items.length; n++) {
                     r = list.items[n].fxEditorRow;
                     entry = drafts[key(r)];
                     label = '';
                     if (entry) { label = invalid[key(r)] ? '! ' : '* '; }
                     label += r.name;
-                    if (list.items[n].text !== label) { list.items[n].text = label; }
-                    list.items[n].subItems[1].text = entry ? displayDraft(entry) : 'Keep original';
+                    setText(list.items[n], label);
+                    setText(list.items[n].subItems[1], entry ? displayDraft(entry) : 'Keep original');
                     applicable = r.available;
                     if (entry && entry.removeKeyframes && r.canRemoveKeyframes) { applicable += r.removable; }
-                    list.items[n].subItems[2].text = (entry && applicable < r.total ? 'Blocked ' : '') + applicable + '/' + r.total;
+                    setText(list.items[n].subItems[2], (entry && applicable < r.total ? 'Blocked ' : '') + applicable + '/' + r.total);
                 }
                 updateTitle(active);
                 apply.enabled = total > 0 && validationErrors.length === 0;
+                setText(apply, FX.I18N.applyChanges(total));
             } finally { updatingDrafts = false; }
-            layout();
+            if (relayout) { layout(); }
         }
         function remember() {
             if (loading || !active || d.fxClosed) { return; }
-            var texts = [], n, any = false, value = null;
-            for (n = 0; n < dimension(active); n++) {
-                texts.push(fields[n].text);
-                if (/\S/.test(fields[n].text)) { any = true; }
-            }
+            var texts = input.texts(), any = input.hasText(), value = null;
             if (isMenu(active)) {
-                value = menu.selection ? menu.selection.fxValue : null;
-                any = typeof value === 'number';
-                if (!any) { value = null; }
+                value = input.menuChoice();
+                any = value !== null;
             }
             if ((any || removeAnimation.value) && canEdit(active)) {
                 drafts[key(active)] = {
@@ -5226,7 +6282,7 @@ FX.Editor = (function () {
         function load(r) {
             loading = true;
             active = r;
-            var entry = r ? drafts[key(r)] : null, size = dimension(r), n, c, item;
+            var entry = r ? drafts[key(r)] : null, c;
             removeAnimation.value = !!(entry && entry.removeKeyframes);
             removeAnimation.enabled = !!r && r.canRemoveKeyframes;
             show(animationRow, !!r && r.removable > 0);
@@ -5245,27 +6301,16 @@ FX.Editor = (function () {
             previousValues.text = r ? 'Previous values (effect counts): ' + r.previous : '';
             // Retain EditText dimensions when a search temporarily hides it.
             previousValues.visible = !!r;
-            menu.removeAll();
-            menu.add('item', 'Keep original values');
-            menu.selection = 0;
-            if (isMenu(r)) {
-                for (n = 0; n < r.row.control.choices.length; n++) {
-                    c = r.row.control.choices[n];
-                    item = menu.add('item', c.label);
-                    item.fxValue = c.value;
-                    if (entry && entry.menuValue === c.value) { menu.selection = item; }
-                }
-            }
-            menu.visible = isMenu(r);
-            numberInputs.visible = !isMenu(r) && size > 0;
-            menu.enabled = canEdit(r);
-            for (n = 0; n < fields.length; n++) {
-                fields[n].visible = !isMenu(r) && n < size;
-                fields[n].enabled = canEdit(r);
-                fields[n].text = entry && entry.texts[n] !== undefined ? entry.texts[n] : '';
-            }
-            fieldHint.text = 'Blank / Keep original leaves each existing value unchanged.';
+            input.setRow(r ? r.row : null, entry ? entry.texts : null, entry ? entry.menuValue : null,
+                { current: r && r.values.length === 1 && !r.unknownValues ? r.values[0] : null });
+            input.setEnabled(canEdit(r));
+            fieldHint.text = 'Leave blank to keep each existing value.';
             if (r && r.removable) { fieldHint.text = 'With Remove keyframes checked: blank keeps each current value; a new value replaces all selected values.'; }
+            if (input.isToggle()) {
+                fieldHint.text = 'Check or uncheck to set every selected effect. Clear this change keeps each original value. Number... edits it as a number; Checkbox switches back.';
+                if (r.removable) { fieldHint.text += ' With Remove keyframes checked and no click, each current value is kept.'; }
+            }
+            if (r && r.row && r.row.valueType === 'COLOR' && !isMenu(r)) { fieldHint.text += ' Colors use 0-1 per channel; type a hex color or use Pick.'; }
             if (r && r.row && r.row.control && r.row.control.kind === 'number') {
                 c = r.row.control;
                 if (c.min !== undefined) { fieldHint.text += ' Min: ' + c.min + '.'; }
@@ -5309,9 +6354,9 @@ FX.Editor = (function () {
         }
         function showTargets() {
             if (!active) { return; }
-            var detail = o.createDialog('Parameter occurrences'), table = detail.add('listbox', undefined, [], {
+            var detail = o.createDialog(FX.I18N.t('Parameter occurrences')), table = detail.add('listbox', undefined, [], {
                 numberOfColumns: 5, showHeaders: true,
-                columnTitles: ['Composition', 'Layer', 'Effect', 'Status', 'Previous value'], columnWidths: [90, 110, 120, 230, 130]
+                columnTitles: FX.I18N.list(['Composition', 'Layer', 'Effect', 'Status', 'Previous value']), columnWidths: [90, 110, 120, 230, 130]
             }), n, entry, reason, item;
             detail.orientation = 'column';
             detail.alignChildren = 'fill';
@@ -5353,12 +6398,10 @@ FX.Editor = (function () {
             remember();
             load(list.selection ? list.selection.fxEditorRow : null);
         }, 'parameter-selection');
-        for (i = 0; i < fields.length; i++) { fields[i].onChanging = fields[i].onChange = o.guard(remember, 'parameter-input'); }
-        menu.onChange = o.guard(remember, 'parameter-menu');
+        input.onChange(o.guard(remember, 'parameter-input'));
         removeAnimation.onClick = o.guard(function () {
             remember();
-            for (var n = 0; n < fields.length; n++) { fields[n].enabled = canEdit(active); }
-            menu.enabled = canEdit(active);
+            input.setEnabled(canEdit(active));
         }, 'parameter-animation');
         changes.onChange = o.guard(function () {
             if (loading || updatingDrafts || !changes.selection) { return; }
@@ -5377,9 +6420,7 @@ FX.Editor = (function () {
             }
         }, 'pending-selection');
         loading = false;
-        show(searchRow, rows.length > 1);
-        show(count, rows.length > 1);
-        show(list, rows.length > 1);
+        show(left, rows.length > 1);
         rebuildList();
         shown = true;
         d.onResizing = d.onResize = o.guard(function () { d.layout.resize(); }, 'editor-resize');
@@ -5395,7 +6436,7 @@ FX.UI = (function () {
         var isPanel = typeof Panel !== 'undefined' && host instanceof Panel;
         var w = isPanel
             ? host
-            : new Window('palette', 'FX Exchanger ' + FX.Updates.installed, undefined, {
+            : new Window('palette', 'FXHX ' + FX.Updates.installed, undefined, {
                   resizeable: true
               });
         if (w.fxController) {
@@ -5431,6 +6472,9 @@ FX.UI = (function () {
             scanner = new FX.Scanner(adapter),
             batch = new FX.Batch(adapter, scanner);
         diagnostics = adapter.diagnostics;
+        var activity = new FX.Activity(function (from, to) {
+            diagnostics.add('activity', '', 'unexpected transition ' + from + ' -> ' + to);
+        });
         var store = null,
             state = FX.Model.state(),
             filters = {},
@@ -5440,7 +6484,6 @@ FX.UI = (function () {
             selectedLayers = {},
             view = { layers: [], instances: [] },
             groups = [],
-            busy = false,
             lastReport = null,
             sourceRows = null,
             disposed = false,
@@ -5515,86 +6558,7 @@ FX.UI = (function () {
             return fallback;
         }
         function layoutRow(control, width, height) {
-            var items = [],
-                i,
-                c,
-                flex = -1,
-                x = 0,
-                widths = [],
-                weights = [],
-                fixed = 0,
-                gap = 4;
-            for (i = 0; i < control.children.length; i++) {
-                c = control.children[i];
-                if (c.visible !== false) {
-                    items.push(c);
-                }
-            }
-            if (!items.length) {
-                return;
-            }
-            if (height > 28 && items.length > 2) {
-                var split = 2,
-                    start = 0,
-                    line,
-                    end,
-                    j;
-                if (items.length === 3) {
-                    split = 1;
-                }
-                for (line = 0; line < 2; line++) {
-                    end = items.length;
-                    if (line === 0) {
-                        end = split;
-                    }
-                    widths = FX.Presentation.rowWidths(
-                        width,
-                        line === 0 && split === 1 ? [1] : [1, 1],
-                        gap
-                    );
-                    x = 0;
-                    for (j = start; j < end; j++) {
-                        items[j].bounds = [
-                            x,
-                            line * 32,
-                            x + widths[j - start],
-                            line * 32 + 28
-                        ];
-                        x += widths[j - start] + gap;
-                    }
-                    start = split;
-                }
-                return;
-            }
-            for (i = 0; i < items.length; i++) {
-                c = items[i];
-                if (c.type === 'dropdownlist' || c.type === 'edittext') {
-                    flex = i;
-                }
-                weights.push(1);
-            }
-            if (control === actionRow) {
-                weights[0] = 2;
-            }
-            if (flex >= 0) {
-                for (i = 0; i < items.length; i++) {
-                    if (i === flex) {
-                        continue;
-                    }
-                    widths[i] = items[i].type === 'statictext' ? 38 : 64;
-                    fixed += widths[i];
-                }
-                widths[flex] = Math.max(
-                    20,
-                    width - fixed - gap * (items.length - 1)
-                );
-            } else {
-                widths = FX.Presentation.rowWidths(width, weights, gap);
-            }
-            for (i = 0; i < items.length; i++) {
-                items[i].bounds = [x, 0, x + widths[i], 28];
-                x += widths[i] + gap;
-            }
+            FX.Layout.row(control, width, height, control === actionRow);
         }
         function layoutViewport(width, height) {
             if (!layoutReady || layoutBusy || disposed) {
@@ -5618,7 +6582,7 @@ FX.UI = (function () {
                     y = 6,
                     fy = 0,
                     i,
-                    fields = [sr, searchRow, gr, scanRow];
+                    fields = [sr, searchRow, gr];
                 viewportState = state;
                 scrollOffset = Math.max(
                     0,
@@ -5642,7 +6606,8 @@ FX.UI = (function () {
                     layoutRow(fields[i], inner, 28);
                     fy += 32;
                 }
-                status.bounds = [0, fy, inner, fy + 38];
+                status.bounds = [0, fy, inner, fy + 28];
+                progress.bounds = [0, fy + 30, inner, fy + 38];
                 fy += 42;
                 tree.control.bounds = [0, fy, inner, fy + state.treeHeight];
                 find.bounds = [6, y, 6 + inner, y + fy + state.treeHeight];
@@ -5773,13 +6738,15 @@ FX.UI = (function () {
             if (title === 'Cancel' || title === 'Close') {
                 properties.name = 'cancel';
             }
-            if (title === 'Apply') {
-                properties.name = 'ok';
-            }
-            var b = parent.add('button', undefined, title, properties);
+            // Apply is deliberately never the default button: Enter typed in a
+            // value field must not submit or confirm a batch.
+            var label = FX.I18N.t(title),
+                b = parent.add('button', undefined, label, properties);
+            // fxTitle is the stable English key; text is what people see.
+            b.fxTitle = title;
             b.preferredSize.width = Math.max(
                 43,
-                Math.min(175, title.length * 6 + 16)
+                Math.min(175, label.length * 6 + 16)
             );
             b.onClick = guard(fn, title);
             return b;
@@ -5848,7 +6815,12 @@ FX.UI = (function () {
             }
         }
         function dropdown(parent, items) {
-            var d = parent.add('dropdownlist', undefined, items);
+            var d = parent.add('dropdownlist', undefined, FX.I18N.list(items)),
+                k;
+            // Logic compares fxKey (English), never the translated text.
+            for (k = 0; k < items.length && k < d.items.length; k++) {
+                d.items[k].fxKey = items[k];
+            }
             d.alignment = ['fill', 'center'];
             d.preferredSize.width = 160;
             d.selection = 0;
@@ -5865,9 +6837,7 @@ FX.UI = (function () {
             } catch (ignoredDiagnostic) {}
             try {
                 if (!scanner.job && !batch.executing) {
-                    busy = false;
-                    scanButton.enabled = true;
-                    cancelButton.enabled = false;
+                    setIdle();
                 }
                 if (scanner.basic && scanner.basic.stale) {
                     updateActions();
@@ -5905,7 +6875,7 @@ FX.UI = (function () {
                 }
             }
         }
-        header.add('statictext', undefined, 'FX Exchanger');
+        header.add('statictext', undefined, 'FXHX');
         var headerSpace = header.add('group');
         headerSpace.alignment = ['fill', 'center'];
         headerSpace.minimumSize = [0, 0];
@@ -5920,7 +6890,7 @@ FX.UI = (function () {
         find.spacing = 4;
         find.margins = 0;
         var sr = row(find);
-        sr.add('statictext', undefined, 'Scope');
+        sr.add('statictext', undefined, FX.I18N.t('Scope'));
         var scope = dropdown(sr, [
             'Active Composition',
             'Choose Compositions',
@@ -5939,7 +6909,7 @@ FX.UI = (function () {
             ];
         var choose = button(sr, 'Choose...', function () {
             var comps = adapter.compositions(),
-                d = new Window('dialog', 'Choose compositions');
+                d = new Window('dialog', FX.I18N.t('Choose compositions'));
             d.orientation = 'column';
             d.alignChildren = 'fill';
             var query = d.add('edittext', undefined, ''),
@@ -6035,11 +7005,12 @@ FX.UI = (function () {
                 invalidateScope();
             }
         });
+        button(sr, 'Filters...', filterDialog);
         var searchRow = row(find);
-        searchRow.add('statictext', undefined, 'Find');
+        searchRow.add('statictext', undefined, FX.I18N.t('Find'));
         var search = searchRow.add('edittext', undefined, '');
         search.helpTip =
-            'Search or Enter inventories the scope if needed, then filters in memory. Initial parameter reads are explicit; successful parameter edits update the same selection automatically.';
+            'Type an effect, layer or composition name and press Enter. The first search lists the effects in the scope; later searches filter that list instantly.';
         search.characters = 10;
         search.alignment = ['fill', 'center'];
         search.minimumSize.width = 50;
@@ -6049,32 +7020,24 @@ FX.UI = (function () {
             applySearch();
         });
         var gr = row(find);
-        gr.add('statictext', undefined, 'View');
-        var groupBy = dropdown(gr, [
-            'Configuration groups (advanced)',
-            'Effect groups',
-            'Effect and layer type groups',
-            'Full configuration groups',
-            'Selected parameter groups',
-            'Composition and configuration groups',
-            'Layers (including without effects)',
-            'Effects (individual instances)'
-        ]);
-        groupBy.visible = false;
-        groupBy.maximumSize = [0, 0];
-        var mainView = dropdown(gr, ['Effects', 'Groups', 'Layer']);
+        gr.add('statictext', undefined, FX.I18N.t('View'));
+        // Grouping mode is data, not a control. Indices follow `modes`:
+        // 0 type-config, 1 effect, 2 type, 3 config, 4 selected,
+        // 5 composition, 6 layers, 7 occurrences. View shows the three
+        // user-facing choices; More > Grouping... picks the group criteria.
+        var groupBy = { selection: { index: 7 }, onChange: null };
+        function setGroupIndex(index) {
+            groupBy.selection = { index: index };
+        }
+        var mainView = dropdown(gr, ['Effects', 'Groups', 'Layers']);
         mainView.helpTip =
-            'Groups compares configurations after Read Parameters. Layer includes empty layers. Configure grouping in More > Grouping...';
-        var parameterGroup = button(gr, 'Parameters...', function () {
-            chooseGrouping();
-        });
+            'Effects lists each effect. Groups compares effects after their parameters are read. Layers includes layers without effects. Group criteria: More > Grouping...';
         var presetsButton = button(gr, 'Presets...', presetDialog);
-        var scanRow = row(find);
-        button(scanRow, 'Filters...', filterDialog);
-        var scanButton = button(scanRow, 'Scan', function () {
+        // Refresh and Cancel share one slot: Cancel replaces Refresh while work runs.
+        var scanButton = button(gr, 'Scan', function () {
                 runScan(scanner.basic && scanner.basic.stale);
             }),
-            cancelButton = button(scanRow, 'Cancel', function () {
+            cancelButton = button(gr, 'Cancel', function () {
                 cancelEditorContinuation();
                 var updatingAfterEdit = !!pendingParameterRefresh ||
                     !!(pendingRestore && pendingRestore.readParameters);
@@ -6082,31 +7045,67 @@ FX.UI = (function () {
                 pendingParameterRefresh = null;
                 pendingRestore = null;
                 scanner.cancel();
-                busy = false;
-                scanButton.enabled = true;
-                cancelButton.enabled = false;
+                setIdle();
                 render();
                 updateActions();
                 status.text =
-                    'Cancelled - inventory preserved when available. Select effects to analyze.';
+                    'Cancelled. The previous list is kept when available.';
                 if (updatingAfterEdit) {
                     status.text = 'Changes were applied. Updating was cancelled; review Results and refresh/read parameters to continue.';
                 }
             });
         scanButton.helpTip =
-            'Basic Scan only: existing effect identities, no property values.';
-        groupBy.helpTip =
-            'Effects lists individual instances. Layers includes empty layers. Other options are optional groups; changing View never reads parameters.';
+            'Update the effect list for the chosen scope. Parameter values are not read.';
         cancelButton.helpTip =
-            'Cancel queued work without publishing partial configurations.';
+            'Stop the current update. Nothing partial is published.';
         cancelButton.enabled = false;
-        var status = find.add(
-            'statictext',
-            undefined,
-            'Choose a scope, then Search or Scan. Parameters are read only on request.',
+        syncWorkButtons();
+        cancelButton.visible = false;
+        function syncWorkButtons() {
+            var working = !!cancelButton.enabled,
+                changed = cancelButton.visible !== working;
+            cancelButton.visible = working;
+            scanButton.visible = !working;
+            scanButton.text = FX.I18N.t(scanner.basic ? 'Refresh' : 'Scan');
+            if (!working && !batch.executing) {
+                hideProgress();
+            }
+            if (changed && layoutReady) {
+                layoutViewport();
+            }
+        }
+        // Phase changes and the Refresh/Cancel slot always move together.
+        function setWorking(phase) {
+            activity.enter(phase);
+            scanButton.enabled = false;
+            cancelButton.enabled = activity.cancellable();
+            syncWorkButtons();
+        }
+        function setIdle() {
+            activity.enter('idle');
+            scanButton.enabled = true;
+            cancelButton.enabled = false;
+            syncWorkButtons();
+        }
+        var status = find.add('statictext', undefined, FX.I18N.t('Choose a scope, then type a name and press Enter (or Search) to list effects.'),
             { multiline: true }
         );
-        status.preferredSize.height = 38;
+        status.preferredSize.height = 28;
+        var progress = find.add('progressbar', undefined, 0, 100);
+        progress.visible = false;
+        function showProgress(done, total) {
+            try {
+                progress.maxvalue = Math.max(1, total);
+                progress.value = Math.max(0, Math.min(done, total));
+                progress.visible = true;
+            } catch (ignoredProgress) {}
+        }
+        function hideProgress() {
+            try {
+                progress.visible = false;
+                progress.value = 0;
+            } catch (ignoredProgress) {}
+        }
         var tree = new FX.Results(find);
         tree.control.alignment = ['fill', 'fill'];
         tree.control.preferredSize = [300, 230];
@@ -6180,7 +7179,7 @@ FX.UI = (function () {
         }
         function selectTreeItem(event) {
             if (
-                busy ||
+                activity.busy() ||
                 renderInProgress ||
                 dialogs.length ||
                 rendering ||
@@ -6341,7 +7340,7 @@ FX.UI = (function () {
             });
         pager.visible = false;
         pager.maximumSize.height = 0;
-        var summary = root.add('statictext', undefined, '0 effects selected', {
+        var summary = root.add('statictext', undefined, FX.I18N.t('0 effects selected'), {
             multiline: true
         });
         summary.preferredSize.height = 34;
@@ -6371,7 +7370,7 @@ FX.UI = (function () {
             var targets = selected().layers;
             FX.U.assert(
                 targets.length,
-                'Select an effect occurrence or switch View to Layers.'
+                'Select an effect, or switch View to Layers to pick a layer.'
             );
             effectMatchName = '';
             effectPreset = null;
@@ -6397,7 +7396,7 @@ FX.UI = (function () {
         var effectMatchName = '',
             effectDisplayName = '';
         function analyzeSelection() {
-            if (disposed || busy || renderInProgress || dialogs.length) {
+            if (disposed || activity.busy() || renderInProgress || dialogs.length) {
                 return;
             }
             var chosen = selected().instances,
@@ -6455,13 +7454,10 @@ FX.UI = (function () {
             updateActions();
         }
         function selectionDialog() {
-            var d = new Window('dialog', 'Operation selection');
+            var d = new Window('dialog', FX.I18N.t('Operation selection'));
             d.orientation = 'column';
             d.alignChildren = 'fill';
-            d.add(
-                'statictext',
-                undefined,
-                'These actions affect visible results only.'
+            d.add('statictext', undefined, FX.I18N.t('These actions affect visible results only.')
             );
             button(d, 'Select All', function () {
                 setAll(true);
@@ -6485,73 +7481,21 @@ FX.UI = (function () {
             showDialog(d);
         }
         function helpDialog() {
-            var d = new Window('dialog', 'FX Exchanger Help');
-            var installedVersion = FX.Updates.installed;
-            d.add('statictext', undefined, 'FX Exchanger ' + installedVersion);
-            d.orientation = 'column';
-            d.alignChildren = 'fill';
-            var index = dropdown(d, []),
-                i;
-            for (i = 0; i < FX.Presentation.help.length; i++) {
-                index.add('item', FX.Presentation.help[i][0]);
-            }
-            var text = d.add('edittext', undefined, '', {
-                multiline: true,
-                scrolling: true,
-                readonly: true
-            });
-            text.preferredSize = [440, 300];
-            index.onChange = function () {
-                if (index.selection) {
-                    text.text = FX.Presentation.help[index.selection.index][1];
+            var wantsDiagnostics = FX.HelpDialog.open({
+                createDialog: function (title) {
+                    return new Window('dialog', title);
+                },
+                dropdown: dropdown,
+                row: row,
+                button: button,
+                showDialog: showDialog,
+                adapter: adapter,
+                diagnostics: diagnostics,
+                disposed: function () {
+                    return disposed;
                 }
-            };
-            index.selection = 0;
-            index.onChange();
-            var updateStatus = d.add('statictext', undefined,
-                'Check GitHub for a newer version. Only runs when you click Check for updates.', { multiline: true });
-            updateStatus.preferredSize = [440, 42];
-            updateStatus.fxUpdateStatus = true;
-            var updateActions = row(d), checkingUpdates = false,
-                checkUpdates = button(updateActions, 'Check for updates', function () {
-                    if (checkingUpdates || disposed) { return; }
-                    checkingUpdates = true;
-                    checkUpdates.enabled = false;
-                    updateStatus.text = 'Checking GitHub...';
-                    try {
-                        d.update();
-                    } catch (ignoredUpdatePaint) {}
-                    try {
-                        var release = adapter.checkForUpdates(installedVersion);
-                        if (release.unpublished) {
-                            updateStatus.text = 'No published release is available yet. Installed: ' + installedVersion + '.';
-                        } else if (release.available) {
-                            updateStatus.text = 'Update available: ' + release.version + ' (installed: ' + installedVersion + '). Open Releases to download it.';
-                        } else {
-                            updateStatus.text = 'You are up to date. Installed: ' + installedVersion + '; latest release: ' + release.version + '.';
-                        }
-                    } catch (updateError) {
-                        updateStatus.text = 'Could not check for updates. Check your connection or open Releases in your browser.';
-                        diagnostics.error('check-updates', updateError);
-                    } finally {
-                        checkingUpdates = false;
-                        checkUpdates.enabled = true;
-                    }
-                });
-            button(updateActions, 'Open Releases', function () {
-                try { adapter.openReleases(); }
-                catch (browserError) { updateStatus.text = 'Open https://github.com/datacg/fxhx/releases in your browser.'; }
             });
-            var openDiagnostics = false;
-            button(d, 'Diagnostics...', function () {
-                openDiagnostics = true;
-                d.close(1);
-            });
-            button(d, 'Close', function () {
-                d.close(0);
-            });
-            showDialog(d);
-            if (openDiagnostics) {
+            if (wantsDiagnostics) {
                 diagnosticDialog();
             }
         }
@@ -6574,13 +7518,10 @@ FX.UI = (function () {
                 }
             }
             if (comps.length > 1) {
-                var d = new Window('dialog', 'Choose Timeline composition');
+                var d = new Window('dialog', FX.I18N.t('Choose Timeline composition'));
                 d.orientation = 'column';
                 d.alignChildren = 'fill';
-                d.add(
-                    'statictext',
-                    undefined,
-                    'Only the chosen composition Timeline will be selected.'
+                d.add('statictext', undefined, FX.I18N.t('Only the chosen composition Timeline will be selected.')
                 );
                 var list = dropdown(d, []);
                 for (i = 0; i < comps.length; i++) {
@@ -6668,7 +7609,7 @@ FX.UI = (function () {
                 e = s[0];
             }
             FX.U.assert(e, 'Highlight an effect occurrence first.');
-            var d = new Window('dialog', 'Effect details');
+            var d = new Window('dialog', FX.I18N.t('Effect details'));
             d.orientation = 'column';
             d.alignChildren = 'fill';
             var data =
@@ -6727,23 +7668,20 @@ FX.UI = (function () {
                 j;
             FX.U.assert(
                 targets.length > 0 && targets.length <= 2,
-                'Select one occurrence to inspect, or two of the same effect to compare.'
+                'Select one effect to inspect, or two of the same effect to compare.'
             );
             for (i = 0; i < targets.length; i++) {
                 FX.U.assert(
                     targets[i].configuration &&
                         targets[i].matchName === targets[0].matchName,
-                    'Analyze selected occurrences of the same effect first.'
+                    'Read the parameters of the selected effects first (More > Read Parameters).'
                 );
             }
             var states = targets[0].configuration.states || [],
-                d = new Window('dialog', 'Animation Inspection');
+                d = new Window('dialog', FX.I18N.t('Animation Inspection'));
             d.orientation = 'column';
             d.alignChildren = 'fill';
-            d.add(
-                'statictext',
-                undefined,
-                'Read only: choose property paths, then Inspect Selected. No keyframe writes.'
+            d.add('statictext', undefined, FX.I18N.t('Read only: choose property paths, then Inspect Selected. No keyframe writes.')
             );
             var list = d.add('listbox', undefined, [], { multiselect: true });
             list.preferredSize = [460, 110];
@@ -6759,7 +7697,7 @@ FX.UI = (function () {
             var keyTable = d.add('listbox', undefined, [], {
                 numberOfColumns: 4,
                 showHeaders: true,
-                columnTitles: ['Key', 'Time (s)', 'Value', 'Curve'],
+                columnTitles: FX.I18N.list(['Key', 'Time (s)', 'Value', 'Curve']),
                 columnWidths: [55, 85, 170, 150]
             });
             keyTable.preferredSize = [460, 150];
@@ -6900,7 +7838,7 @@ FX.UI = (function () {
             ids.sort();
             draftKey += '/' + ids.join('|');
             intent = FX.Editor.open({
-                dialog: new Window('dialog', 'Edit Parameters'),
+                dialog: new Window('dialog', FX.I18N.t('Edit Parameters')),
                 createDialog: function (title) { return new Window('dialog', title); },
                 instances: instances, layerCount: s.layers.length, rows: rows,
                 drafts: editorDraft && editorDraft.key === draftKey ? editorDraft.drafts : {},
@@ -7432,7 +8370,7 @@ FX.UI = (function () {
                     ' / ' +
                     total;
                 pageText.helpTip =
-                    'Pages limit displayed rows. Group selection includes all matching occurrences; the counter and confirmation show targets.';
+                    'Long lists are split into pages. Selecting a group includes all its effects, also on other pages; the counter and confirmation show the total.';
             } finally {
                 rendering = false;
                 diagnostics.measure(
@@ -7470,17 +8408,15 @@ FX.UI = (function () {
         }
         function updateActions() {
             var layoutChanged = resultsButton.visible !== !!lastReport;
-            searchButton.enabled = !busy;
-            mainView.enabled = !busy;
-            resultsButton.enabled = !!lastReport && !busy;
+            searchButton.enabled = !activity.busy();
+            mainView.enabled = !activity.busy();
+            resultsButton.enabled = !!lastReport && !activity.busy();
             selectResultsButton.enabled =
                 !!scanner.basic &&
                 !scanner.basic.stale &&
-                !busy &&
+                !activity.busy() &&
                 (view.instances.length > 0 || view.layers.length > 0);
             resultsButton.visible = !!lastReport;
-            parameterGroup.visible = false;
-            parameterGroup.enabled = !busy && parameterGroup.visible;
             var s = selected(),
                 fresh = !!scanner.basic && !scanner.basic.stale,
                 choice = FX.Presentation.selectionState(s, fresh),
@@ -7526,28 +8462,29 @@ FX.UI = (function () {
             if (offPage) {
                 summary.text += ' (' + offPage + ' on other pages, included)';
             }
-            primaryButton.text = 'Select an effect';
+            // A stable verb; when nothing is actionable the button is
+            // disabled and the status line explains what to select.
+            primaryButton.text = FX.I18N.t('Edit Parameters...');
             if (choice.action === 'scan') {
-                primaryButton.text = fresh ? 'Scan' : 'Refresh';
+                primaryButton.text = FX.I18N.t(fresh ? 'Scan' : 'Refresh');
             }
             if (choice.action === 'analyze') {
-                primaryButton.text = choice.same ? 'Edit Parameters...' : 'Read Parameters';
+                primaryButton.text = FX.I18N.t(choice.same ? 'Edit Parameters...' : 'Read Parameters');
             }
             if (choice.action === 'edit') {
-                primaryButton.text = 'Edit Parameters...';
+                primaryButton.text = FX.I18N.t('Edit Parameters...');
             }
-            primaryButton.enabled = !busy && choice.action !== 'none';
+            primaryButton.enabled = !activity.busy() && choice.action !== 'none';
             primaryButton.visible = !!scanner.basic;
             primaryButton.helpTip = choice.message;
-            scanButton.text =
-                scanner.basic && scanner.basic.stale ? 'Refresh' : 'Scan';
-            locateButton.enabled = fresh && !busy && s.layers.length > 0;
-            actionsButton.enabled = fresh && !busy && actionIds().length > 0;
-            enableButton.enabled = fresh && !busy && s.instances.length > 0;
+            syncWorkButtons();
+            locateButton.enabled = fresh && !activity.busy() && s.layers.length > 0;
+            actionsButton.enabled = fresh && !activity.busy() && actionIds().length > 0;
+            enableButton.enabled = fresh && !activity.busy() && s.instances.length > 0;
             disableButton.enabled = enableButton.enabled;
-            addButton.enabled = fresh && !busy && s.layers.length > 0;
-            presetsButton.enabled = !busy;
-            if (!busy) {
+            addButton.enabled = fresh && !activity.busy() && s.layers.length > 0;
+            presetsButton.enabled = !activity.busy();
+            if (!activity.busy()) {
                 status.text = choice.message;
             }
             if (fresh && !view.instances.length && !view.layers.length) {
@@ -7555,7 +8492,7 @@ FX.UI = (function () {
             }
             if (presentationFailed) {
                 primaryButton.text = 'Retry display';
-                primaryButton.enabled = !busy;
+                primaryButton.enabled = !activity.busy();
                 locateButton.enabled = false;
                 actionsButton.enabled = false;
                 enableButton.enabled =
@@ -7563,7 +8500,7 @@ FX.UI = (function () {
                     addButton.enabled =
                         false;
                 status.text =
-                    'Display failed. Retry display, press Enter or run Scan. Scanner data retained.';
+                    'The list could not be displayed. Click Retry display or press Enter; your data is kept.';
             }
             if (searchPending) {
                 primaryButton.enabled = false;
@@ -7581,7 +8518,7 @@ FX.UI = (function () {
             }
         }
         function searchProject() {
-            if (disposed || busy || renderInProgress || dialogs.length) {
+            if (disposed || activity.busy() || renderInProgress || dialogs.length) {
                 return false;
             }
             if (!scanner.basic || scanner.basic.stale) {
@@ -7600,7 +8537,7 @@ FX.UI = (function () {
             }
             if (!scanner.basic || scanner.basic.stale) {
                 status.text =
-                    'Click Search to inventory the selected scope first.';
+                    'Press Search to list the effects in this scope first.';
                 return false;
             }
             displayQuery = search.text;
@@ -7624,7 +8561,7 @@ FX.UI = (function () {
         }
         function actionsDialog() {
             FX.U.assert(
-                !busy && scanner.basic && !scanner.basic.stale,
+                !activity.busy() && scanner.basic && !scanner.basic.stale,
                 'Refresh before continuing.'
             );
             var ids = actionIds(),
@@ -7635,7 +8572,7 @@ FX.UI = (function () {
                 status.text = 'Select an effect or group to continue.';
                 return;
             }
-            var d = new Window('dialog', 'More Actions');
+            var d = new Window('dialog', FX.I18N.t('More Actions'));
             d.orientation = 'column';
             d.alignChildren = 'fill';
             var actionHost = d, actionLine = null, actionColumn = 0;
@@ -7658,12 +8595,11 @@ FX.UI = (function () {
                 });
             }
             var i,
+                // Enable/Disable/Add Effect live on the panel; More only
+                // lists actions that have no direct button.
                 names = {
-                    copy: 'Copy Settings From...',
-                    enable: 'Enable',
-                    disable: 'Disable',
-                    remove: 'Remove',
-                    apply: 'Apply Effect...'
+                    copy: 'Copy From Another Effect...',
+                    remove: 'Remove Effects'
                 };
             actionSection('Parameters');
             if (selection.instances.length && !choice.analyzed) {
@@ -7693,7 +8629,7 @@ FX.UI = (function () {
             }
             actionSection('Effects');
             for (i = 0; i < ids.length; i++) {
-                if (ids[i] !== 'copy') { actionButton(names[ids[i]], ids[i]); }
+                if (ids[i] !== 'copy' && names[ids[i]]) { actionButton(names[ids[i]], ids[i]); }
             }
             actionSection('Selection and display');
             actionButton('Add to Selection', 'add');
@@ -7703,9 +8639,6 @@ FX.UI = (function () {
             actionSection('Support');
             if (selection.instances.length) { actionButton('Details...', 'details'); }
             actionButton('Diagnostics...', 'diagnostics');
-            if (lastReport && lastReport.issues.length) {
-                actionButton('Issues...', 'issues');
-            }
             button(d, 'Cancel', function () {
                 d.close(0);
             });
@@ -7775,15 +8708,13 @@ FX.UI = (function () {
             lastRender = null;
             pager.visible = false;
             pager.maximumSize.height = 0;
-            busy = false;
-            scanButton.enabled = true;
-            cancelButton.enabled = false;
+            setIdle();
             selectedEffects = {};
             selectedLayers = {};
             view = { layers: [], instances: [] };
             tree.removeAll();
             updateActions();
-            status.text = 'Results Outdated - scope changed. Run Scan.';
+            status.text = 'Scope changed. Press Search or Scan to list its effects.';
             state.preferences.scope = scopes[scope.selection.index];
             save();
         }
@@ -7815,7 +8746,7 @@ FX.UI = (function () {
             viewSyncing = true;
             try {
                 if (!groupBy.selection || groupBy.selection.index !== index) {
-                    groupBy.selection = index;
+                    setGroupIndex(index);
                 }
             } finally {
                 viewSyncing = previous;
@@ -7844,7 +8775,7 @@ FX.UI = (function () {
                 initializing ||
                 viewSyncing ||
                 viewChanging ||
-                busy ||
+                activity.busy() ||
                 dialogs.length ||
                 !groupBy.selection
             ) {
@@ -7881,7 +8812,7 @@ FX.UI = (function () {
             if (
                 initializing ||
                 advancedDialogOpen ||
-                busy ||
+                activity.busy() ||
                 dialogs.length ||
                 disposed
             ) {
@@ -7889,13 +8820,10 @@ FX.UI = (function () {
             }
             advancedDialogOpen = true;
             try {
-                var d = new Window('dialog', 'Grouping');
+                var d = new Window('dialog', FX.I18N.t('Grouping'));
                 d.orientation = 'column';
                 d.alignChildren = 'fill';
-                d.add(
-                    'statictext',
-                    undefined,
-                    'Optional comparison views. Effects and Layers do not require grouping.'
+                d.add('statictext', undefined, FX.I18N.t('Optional comparison views. Effects and Layers do not require grouping.')
                 );
                 var choice = dropdown(d, [
                     'Configuration / layer type',
@@ -7935,7 +8863,7 @@ FX.UI = (function () {
                 initializing ||
                 viewSyncing ||
                 viewChanging ||
-                busy ||
+                activity.busy() ||
                 dialogs.length ||
                 !mainView.selection
             ) {
@@ -7949,19 +8877,18 @@ FX.UI = (function () {
             groupBy.onChange();
         }, 'view');
         function beginWork() {
-            busy = true;
+            setWorking(
+                scanner.job && scanner.job.phase === 'configuration' ? 'reading' : 'listing'
+            );
             try {
-                scanButton.enabled = false;
-                cancelButton.enabled = true;
                 updateActions();
                 tick();
             } catch (error) {
                 sessionEpoch++;
                 scanner.cancel();
-                busy = false;
+                activity.enter('idle');
                 try {
-                    scanButton.enabled = true;
-                    cancelButton.enabled = false;
+                    setIdle();
                     updateActions();
                 } catch (ignoredControls) {}
                 throw error;
@@ -8140,7 +9067,7 @@ FX.UI = (function () {
             editorContinueTask = null;
             var request = editorContinueRequest;
             editorContinueRequest = null;
-            if (!request || disposed || epoch !== sessionEpoch || busy || scanner.job || dialogs.length ||
+            if (!request || disposed || epoch !== sessionEpoch || activity.busy() || scanner.job || dialogs.length ||
                 request.project !== adapter.project()) { return; }
             var targets = selected().instances, keys = [], i;
             for (i = 0; i < targets.length; i++) { keys.push(FX.Model.effectKey(targets[i])); }
@@ -8174,9 +9101,7 @@ FX.UI = (function () {
                 cancelEditorContinuation();
                 pendingRestore = null;
                 scanner.invalidate();
-                busy = false;
-                scanButton.enabled = true;
-                cancelButton.enabled = false;
+                setIdle();
                 status.text =
                     'Error - operation stopped. See Diagnostics; run Scan again.';
                 reportError('scan', e);
@@ -8195,24 +9120,23 @@ FX.UI = (function () {
         scanner.onProgress = function (l, e, c, total, phase) {
             status.text =
                 (phase === 'basic'
-                    ? 'Scanning '
-                    : 'Analyzing Configurations ') +
+                    ? 'Listing effects: composition '
+                    : 'Reading parameters: effect ') +
                 Math.min(c + 1, total) +
-                ' / ' +
+                ' of ' +
                 total +
-                (phase === 'basic' ? ' compositions; ' : ' candidates; ') +
+                ' (' +
                 l +
-                ' layers / ' +
+                ' layers, ' +
                 e +
-                ' effects';
+                ' effects found)';
+            showProgress(Math.min(c + 1, total), total);
         };
         scanner.onDone = function (result) {
             if (disposed) {
                 return;
             }
-            busy = false;
-            scanButton.enabled = true;
-            cancelButton.enabled = false;
+            setIdle();
             var recovered =
                 result.analysisState === 'basic'
                     ? restoreRefreshTargets(result)
@@ -8228,9 +9152,7 @@ FX.UI = (function () {
                         expected: recovered.targets.length,
                         skipped: recovered.skipped
                     };
-                    busy = true;
-                    scanButton.enabled = false;
-                    cancelButton.enabled = true;
+                    setWorking('reading');
                     status.text = 'Changes applied. Updating parameters for ' + recovered.targets.length + ' selected effects...';
                     updateActions();
                     return;
@@ -8238,9 +9160,7 @@ FX.UI = (function () {
                     pendingParameterRefresh = null;
                     cancelEditorContinuation();
                     scanner.cancel();
-                    busy = false;
-                    scanButton.enabled = true;
-                    cancelButton.enabled = false;
+                    setIdle();
                     render();
                     reportError('post-edit-read', readStartError);
                     status.text = 'Changes applied. Parameters could not be updated; review Results and refresh/read parameters to continue.';
@@ -8283,140 +9203,52 @@ FX.UI = (function () {
         batch.onProgress = function (index, total) {
             if (!disposed) {
                 status.text =
-                    'Applying target ' +
+                    'Applying ' +
                     (index + 1) +
-                    ' / ' +
+                    ' of ' +
                     total +
-                    '. Await host return; Cancel cannot interrupt a synchronous API.';
+                    '. After Effects may not respond until this finishes.';
+                showProgress(index + 1, total);
             }
         };
         function confirmAndExecute(targets, id, options) {
             var plan = batch.preview(targets, id, options),
-                title = id,
-                description = '',
-                partial = false,
-                i,
-                j;
-            if (options && options.rows && id !== 'apply') {
-                title = 'Change ' + FX.Presentation.effectName(targets[0]);
-                for (i = 0; i < options.rows.length; i++) {
-                    var change = options.rows[i],
-                        values = {},
-                        distinct = [],
-                        count = 0,
-                        removedKeys = 0,
-                        animatedTargets = 0,
-                        authorized,
-                        ai,
-                        old,
-                        prior,
-                        key;
-                    for (j = 0; j < targets.length; j++) {
-                        prior = FX.Presentation.parameterStatus(targets[j], change.path);
-                        if (prior.hasValue) {
-                            key = '$' + FX.JSON.stringify(prior.currentValue);
-                            if (!values[key]) { values[key] = 0; distinct.push(prior.currentValue); }
-                            values[key]++;
-                        }
-                        old = FX.Config.row(
-                            targets[j].configuration,
-                            change.path
-                        );
-                        if (
-                            old &&
-                            old.valueType === change.valueType &&
-                            !targets[j].locked
-                        ) {
-                            count++;
-                        }
-                        authorized = (plan.keyframeRemovals || {})['$' + FX.Model.effectKey(targets[j])] || [];
-                        for (ai = 0; ai < authorized.length; ai++) {
-                            if (FX.Config.key(authorized[ai].path) === FX.Config.key(change.path)) {
-                                count++;
-                                animatedTargets++;
-                                removedKeys += authorized[ai].keyCount;
-                            }
-                        }
-                    }
-                    var fromParts = [], vi;
-                    for (vi = 0; vi < distinct.length; vi++) {
-                        fromParts.push(FX.Parameters.display(change, distinct[vi]) +
-                            ' (' + values['$' + FX.JSON.stringify(distinct[vi])] + ')');
-                    }
-                    var from = fromParts.length ? fromParts.join('; ') : 'Unavailable';
-                    description +=
-                        change.name +
-                        ': ' +
-                        from +
-                        ' -> ' +
-                        (change.keepCurrent ? 'Keep each current value; clear keyframes' : FX.Parameters.display(change)) +
-                        '\n';
-                    if (removedKeys) {
-                        description += 'Remove ' + removedKeys + ' keyframes in ' + animatedTargets +
-                            ' effects for ' + change.name + (change.keepCurrent ? '; keep each current value.\n' : '; replace with this fixed value.\n');
-                    }
-                    if (count < targets.length) {
-                        FX.U.assert(!options.requireAll, 'Cannot update all selected effects; adjust the selection or pending changes');
-                        partial = true;
-                        description +=
-                            'Expected: ' +
-                            count +
-                            '/' +
-                            targets.length +
-                            ' effects; others preserved.\n';
-                    }
-                }
-                description += 'Other parameters unchanged.\n';
-                if (options.requireAll) { description += 'Every pending parameter applies to all ' + targets.length + ' selected effects.\n'; }
-            } else if (id === 'remove') {
-                description =
-                    'Remove entire effects, including keyframes and expressions.\n';
-            } else if (id === 'apply') {
-                description =
-                    'Apply ' +
-                    (options.displayName || options.matchName) +
-                    '.\n';
-                if (options.rows) {
-                    partial = true;
-                    description +=
-                        'Preset: ' +
-                        options.presetName +
-                        '. Adds a NEW instance and sets ' +
-                        options.rows.length +
-                        ' static parameters. Unsupported parameters may be skipped. Existing effects are not replaced. A failed write can leave the new instance in the project.\n';
-                }
-            }
-            description +=
-                'Affected: ' +
-                targets.length +
-                (id === 'apply' ? ' target layers / ' : ' effects / ') +
-                plan.layerCount +
-                ' layers / ' +
-                plan.compCount +
-                ' compositions.';
-            var d = new Window('dialog', 'Confirm changes');
+                summary = FX.Confirmation.describe(targets, id, options, plan),
+                title = summary.title,
+                description = summary.description,
+                changeRows = summary.changeRows,
+                partial = summary.partial,
+                i;
+            var d = new Window('dialog', FX.I18N.t('Confirm changes'));
             d.orientation = 'column';
             d.alignChildren = 'fill';
             d.add('statictext', undefined, title);
+            if (changeRows.length) {
+                // One row per parameter: easier to scan than a text dump.
+                var table = d.add('listbox', undefined, [], {
+                    numberOfColumns: 3,
+                    showHeaders: true,
+                    columnTitles: FX.I18N.list(['Parameter', 'Current (effects)', 'New value']),
+                    columnWidths: [150, 220, 150]
+                });
+                table.fxChangeTable = true;
+                table.preferredSize = [540, Math.min(220, 44 + changeRows.length * 20)];
+                for (i = 0; i < changeRows.length; i++) {
+                    var changeItem = table.add('item', changeRows[i][0]);
+                    changeItem.subItems[0].text = changeRows[i][1];
+                    changeItem.subItems[1].text = changeRows[i][2];
+                }
+            }
             var text = d.add('edittext', undefined, description, {
                 multiline: true,
                 scrolling: true,
                 readonly: true
             });
-            text.preferredSize = [
-                400,
-                Math.min(
-                    260,
-                    70 + (options.rows ? options.rows.length * 32 : 0)
-                )
-            ];
+            text.preferredSize = [540, Math.min(160, 50 + (description.split('\n').length - 1) * 16)];
             var agreement = null,
                 animationAgreement = null;
             if (partial) {
-                agreement = d.add(
-                    'checkbox',
-                    undefined,
-                    'I agree to apply only compatible occurrences.'
+                agreement = d.add('checkbox', undefined, FX.I18N.t('I understand: only compatible effects will change.')
                 );
                 agreement.value = false;
             }
@@ -8426,12 +9258,15 @@ FX.UI = (function () {
                 animationAgreement.value = false;
             }
             var controls = row(d);
+            controls.alignment = ['right', 'center'];
             var apply = button(controls, 'Apply', function () {
                 if ((partial && !agreement.value) || (animationAgreement && !animationAgreement.value)) {
                     return;
                 }
                 d.close(1);
             });
+            apply.text = FX.I18N.applyTo(id === 'apply', targets.length);
+            apply.preferredSize.width = Math.max(apply.preferredSize.width, apply.text.length * 6 + 16);
             function updateAgreement() {
                 apply.enabled = (!partial || agreement.value) &&
                     (!animationAgreement || animationAgreement.value);
@@ -8443,9 +9278,12 @@ FX.UI = (function () {
             if (animationAgreement) {
                 animationAgreement.onClick = updateAgreement;
             }
-            button(controls, 'Cancel', function () {
+            var cancelChanges = button(controls, 'Cancel', function () {
                 d.close(0);
             });
+            // Enter cancels; applying a batch always needs an explicit click.
+            d.defaultElement = cancelChanges;
+            d.cancelElement = cancelChanges;
             d.center();
             if (showDialog(d) !== 1 || disposed) {
                 return false;
@@ -8455,13 +9293,14 @@ FX.UI = (function () {
                 'Close dialogs before executing changes'
             );
             rememberRefreshTargets(targets, id);
-            busy = true;
+            setWorking('applying');
             lastReport = null;
             batch.lastReport = null;
             var batchFailure = null;
             try {
                 scanButton.enabled = false;
                 cancelButton.enabled = false;
+                syncWorkButtons();
                 status.text =
                     'Validating all targets before writing. Synchronous host calls may block this panel.';
                 updateActions();
@@ -8470,9 +9309,7 @@ FX.UI = (function () {
                 lastReport = batch.lastReport;
                 batchFailure = batchError;
             } finally {
-                busy = false;
-                scanButton.enabled = true;
-                cancelButton.enabled = false;
+                setIdle();
                 context();
             }
             if (batchFailure) {
@@ -8496,7 +9333,42 @@ FX.UI = (function () {
                 !lastReport.unknown &&
                 !lastReport.verificationFailed
             ) {
-                runScan(true, id === 'set' || id === 'copy');
+                if (!refreshWithoutRescan(targets, id)) {
+                    runScan(true, id === 'set' || id === 'copy');
+                }
+            }
+            return true;
+        }
+        // Fast path after value-only operations: keep the effect list, re-check
+        // the written targets and re-read only their parameters (set/copy).
+        // Structural operations (remove, add effect) still relist the scope.
+        function refreshWithoutRescan(targets, id) {
+            if (!FX.U.contains(['set', 'copy', 'enable', 'disable'], id) || !refreshTargets ||
+                disposed || scanner.job || ticking) {
+                return false;
+            }
+            var saved = refreshTargets;
+            if (!scanner.reuseAfterWrite(saved.project, targets)) {
+                return false;
+            }
+            sessionEpoch++;
+            pendingParameterRefresh = null;
+            pendingRestore = saved;
+            pendingRestore.readParameters = id === 'set' || id === 'copy';
+            selectedEffects = {};
+            selectedLayers = {};
+            activeTarget = null;
+            activeNodeKey = null;
+            activeEffectKey = null;
+            groupCache = [];
+            lastRender = null;
+            editorDraft = null;
+            diagnostics.measure('refreshWithoutRescan', 0, targets.length);
+            // Same completion path as a Basic scan: restore the selection,
+            // then (for edits) read only the targets on the next scheduler tick.
+            scanner.onDone(scanner.basic);
+            if (scanner.job && scanner.task === null) {
+                scanner.task = adapter.schedule(callback, sessionEpoch);
             }
             return true;
         }
@@ -8547,13 +9419,10 @@ FX.UI = (function () {
                 targets.length,
                 'No compatible static parameters are available. Animation inspection is read only.'
             );
-            var d = new Window('dialog', 'Copy Parameters');
+            var d = new Window('dialog', FX.I18N.t('Copy Parameters'));
             d.orientation = 'column';
             d.alignChildren = 'fill';
-            d.add(
-                'statictext',
-                undefined,
-                'Choose the source occurrence. Only the static parameters you choose will be copied.'
+            d.add('statictext', undefined, FX.I18N.t('Choose the effect to copy from. Only the static parameters you choose will be copied.')
             );
             var sources = dropdown(d, []);
             for (i = 0; i < targets.length; i++) {
@@ -8617,7 +9486,7 @@ FX.UI = (function () {
                 FX.U.assert(
                     targets[i].matchName === data.matchName &&
                         targets[i].configuration,
-                    'Select analyzed occurrences of the same effect. Other effect types cannot receive these parameters.'
+                    'Select effects of the same type with parameters read. Other effect types cannot receive these parameters.'
                 );
             }
             publicRows = FX.Parameters.rows(data.matchName, FX.U.clone(data.rows));
@@ -8646,7 +9515,7 @@ FX.UI = (function () {
         }
         function editPreset(preset) {
             var rows = FX.Parameters.rows(preset.matchName, FX.U.clone(preset.rows)),
-                d = new Window('dialog', 'Edit preset');
+                d = new Window('dialog', FX.I18N.t('Edit preset'));
             FX.U.assert(rows.length, 'This preset contains no public editable parameters.');
             d.orientation = 'column';
             d.alignChildren = 'fill';
@@ -8656,60 +9525,80 @@ FX.UI = (function () {
                 preset.name + ' [' + preset.matchName + ']'
             );
             var list = d.add('listbox', undefined, []),
-                i;
+                i,
+                editing = -1,
+                dirty = false;
             list.preferredSize = [420, 220];
-            for (i = 0; i < rows.length; i++) {
-                list.add(
-                    'item',
-                    rows[i].name + ' = ' + FX.Parameters.display(rows[i])
-                );
+            function presetLabel(r) {
+                return r.name + ' = ' + FX.Parameters.display(r);
             }
-            d.add(
-                'statictext',
-                undefined,
-                'Edit one parameter per save. Number or JSON array; only the saved preset changes.'
+            for (i = 0; i < rows.length; i++) {
+                list.add('item', presetLabel(rows[i]));
+            }
+            d.add('statictext', undefined, FX.I18N.t('Edit any number of parameters, then Save preset. Only the saved preset changes, not the project.')
             );
-            var presetValueHost = d.add('group');
-            presetValueHost.orientation = 'stack';
-            presetValueHost.alignChildren = ['fill', 'center'];
-            presetValueHost.minimumSize.height = 24;
-            var value = presetValueHost.add('edittext', undefined, '');
-            value.minimumSize = [180, 24];
-            var presetMenu = presetValueHost.add('dropdownlist', undefined, []);
-            presetMenu.minimumSize = [180, 24];
-            presetMenu.fxPresetMenu = true;
-            list.onChange = function () {
-                if (list.selection) {
-                    var selectedRow = rows[list.selection.index], c, item;
-                    presetMenu.removeAll();
-                    presetMenu.visible = !!(selectedRow.control && selectedRow.control.kind === 'menu');
-                    value.visible = !presetMenu.visible;
-                    if (presetMenu.visible) {
-                        for (c = 0; c < selectedRow.control.choices.length; c++) {
-                            item = presetMenu.add('item', selectedRow.control.choices[c].label);
-                            item.fxValue = selectedRow.control.choices[c].value;
-                            if (item.fxValue === selectedRow.value) { presetMenu.selection = item; }
-                        }
-                    }
-                    value.text = FX.JSON.stringify(
-                        rows[list.selection.index].value
-                    );
+            var presetInput = FX.ValueInput.create(d, {
+                    menuFlag: 'fxPresetMenu',
+                    keepLabel: 'Keep saved value',
+                    onError: function (error) { presetError.text = String(error.message || error); }
+                }),
+                presetError = d.add('statictext', undefined, '', { multiline: true });
+            presetError.preferredSize = [420, 30];
+            presetInput.onChange(function () {
+                dirty = true;
+                presetError.text = '';
+            });
+            // Commits the visible field into the preset rows; throws a
+            // readable message when the typed value is invalid.
+            function commitPresetValue() {
+                if (editing < 0 || !dirty) {
+                    return;
                 }
-            };
+                var r = rows[editing], v;
+                if (FX.ValueInput.isMenu(r)) {
+                    v = presetInput.menuChoice();
+                    if (v === null) {
+                        dirty = false;
+                        return;
+                    }
+                } else {
+                    v = FX.ValueInput.parse(r, presetInput.texts());
+                }
+                var candidate = FX.U.clone(r);
+                candidate.value = v;
+                FX.Validate.rows([candidate]);
+                r.value = v;
+                list.items[editing].text = presetLabel(r);
+                dirty = false;
+            }
+            list.onChange = guard(function () {
+                if (!list.selection || list.selection.index === editing) {
+                    return;
+                }
+                try {
+                    commitPresetValue();
+                } catch (invalid) {
+                    presetError.text = rows[editing].name + ': ' + String(invalid.message || invalid);
+                    list.selection = editing;
+                    return;
+                }
+                editing = list.selection.index;
+                var selectedRow = rows[editing];
+                presetInput.setRow(
+                    selectedRow,
+                    FX.ValueInput.isMenu(selectedRow) ? null : FX.ValueInput.texts(selectedRow.value),
+                    selectedRow.value
+                );
+                dirty = false;
+                try { d.layout.layout(true); } catch (ignoredLayout) {}
+            }, 'preset-parameter');
             list.selection = 0;
             list.onChange();
             button(d, 'Save preset', function () {
                 FX.U.assert(list.selection, 'Choose a parameter');
-                var index = list.selection.index,
-                    v;
-                if (presetMenu.visible) {
-                    FX.U.assert(presetMenu.selection, 'Choose a dropdown option');
-                    v = presetMenu.selection.fxValue;
-                } else {
-                    v = FX.JSON.parse(value.text);
-                }
-                FX.Validate.value(rows[index].valueType, v);
-                rows[index].value = v;
+                dirty = true;
+                commitPresetValue();
+                FX.Validate.rows(rows);
                 presets().save(
                     preset.name,
                     preset.matchName,
@@ -8725,7 +9614,7 @@ FX.UI = (function () {
             showDialog(d);
         }
         function presetDialog() {
-            if (busy || initializing || dialogs.length) {
+            if (activity.busy() || initializing || dialogs.length) {
                 return;
             }
             var library = presets();
@@ -8733,13 +9622,10 @@ FX.UI = (function () {
                 var entries = library.list(),
                     action = null,
                     selectedId = null,
-                    d = new Window('dialog', 'Effect presets');
+                    d = new Window('dialog', FX.I18N.t('Effect presets'));
                 d.orientation = 'column';
                 d.alignChildren = 'fill';
-                d.add(
-                    'statictext',
-                    undefined,
-                    'Single-effect static presets. No sets, keyframes or expressions.'
+                d.add('statictext', undefined, FX.I18N.t('Single-effect static presets. No sets, keyframes or expressions.')
                 );
                 var list = d.add('listbox', undefined, []),
                     i;
@@ -8848,7 +9734,7 @@ FX.UI = (function () {
                     return;
                 } else if (action === 'import') {
                     file = File.openDialog(
-                        'Import FX Exchanger presets',
+                        'Import FXHX presets',
                         'JSON:*.json'
                     );
                     if (file) {
@@ -8872,7 +9758,7 @@ FX.UI = (function () {
                     }
                 } else if (action === 'export') {
                     file = File.saveDialog(
-                        'Export all FX Exchanger presets',
+                        'Export all FXHX presets',
                         'JSON:*.json'
                     );
                     if (file) {
@@ -8895,14 +9781,11 @@ FX.UI = (function () {
                 all.length || saved.length,
                 'No effects are available to apply.'
             );
-            var d = new Window('dialog', 'Choose effect to apply');
+            var d = new Window('dialog', FX.I18N.t('Choose effect to apply'));
             d.orientation = 'column';
             d.alignChildren = 'fill';
             if (presetLoadFailed) {
-                d.add(
-                    'statictext',
-                    undefined,
-                    'Saved presets unavailable. Original files preserved; see Help > Diagnostics.'
+                d.add('statictext', undefined, FX.I18N.t('Saved presets unavailable. Original files preserved; see Help > Diagnostics.')
                 );
             }
             var kind = dropdown(d, ['All effects', 'Saved presets']);
@@ -9025,7 +9908,7 @@ FX.UI = (function () {
         function copyReference() {
             var s = selected(),
                 available = comparableInstances(),
-                d = new Window('dialog', 'Choose copy reference');
+                d = new Window('dialog', FX.I18N.t('Choose copy reference'));
             FX.U.assert(s.instances.length, 'Select target occurrences first.');
             d.orientation = 'column';
             d.alignChildren = 'fill';
@@ -9048,16 +9931,13 @@ FX.UI = (function () {
             button(d, 'Use analyzed result', function () {
                 FX.U.assert(
                     list.selection,
-                    'Choose an analyzed reference occurrence.'
+                    'Choose an effect whose parameters were read.'
                 );
                 chosenConfiguration =
                     available[list.selection.index].configuration;
                 d.close(1);
             });
-            d.add(
-                'statictext',
-                undefined,
-                'Optional: select ONE effect in After Effects Effect Controls first.',
+            d.add('statictext', undefined, FX.I18N.t('Optional: select ONE effect in After Effects Effect Controls first.'),
                 { multiline: true }
             );
             button(d, 'Use Effect Controls reference', function () {
@@ -9082,13 +9962,13 @@ FX.UI = (function () {
         function chooseGrouping() {
             FX.U.assert(
                 scanner.basic && !scanner.basic.stale,
-                'Run Scan and select an effect occurrence first'
+                'List the effects (Search) and select one first'
             );
             var s = selected().instances;
             FX.U.assert(s.length, 'Select an occurrence first');
             FX.U.assert(
                 s[0].configuration,
-                'Select an occurrence and use Read Parameters first.'
+                'Select an effect and use More > Read Parameters first.'
             );
             var chosen = pickRows(
                 s[0].configuration,
@@ -9108,7 +9988,7 @@ FX.UI = (function () {
             if (filters.property) {
                 propertyFilters.push(FX.U.clone(filters.property));
             }
-            var d = new Window('dialog', 'Layer and effect filters');
+            var d = new Window('dialog', FX.I18N.t('Layer and effect filters'));
             d.orientation = 'column';
             d.alignChildren = 'fill';
             var cn = d.add('edittext', undefined, filters.compName || '');
@@ -9129,7 +10009,7 @@ FX.UI = (function () {
                 labels = ['Any label'],
                 i;
             for (i = 0; i < type.items.length; i++) {
-                if (type.items[i].text === filters.type) {
+                if ((type.items[i].fxKey || type.items[i].text) === filters.type) {
                     type.selection = i;
                 }
             }
@@ -9199,7 +10079,7 @@ FX.UI = (function () {
             animation.helpTip =
                 'Uses known analysis metadata only; unknown is never Static.';
             for (i = 0; i < animation.items.length; i++) {
-                if (animation.items[i].text === filters.animation) {
+                if ((animation.items[i].fxKey || animation.items[i].text) === filters.animation) {
                     animation.selection = i;
                 }
             }
@@ -9214,7 +10094,7 @@ FX.UI = (function () {
                 var s = selected().instances;
                 FX.U.assert(
                     s.length,
-                    'Select a scanned occurrence before choosing a property'
+                    'Select an effect from the list before choosing a property'
                 );
                 FX.U.assert(
                     s[0].configuration,
@@ -9255,9 +10135,9 @@ FX.UI = (function () {
             button(buttons, 'Use filters', function () {
                 filters.property = null;
                 filters.properties = propertyFilters;
-                filters.animation = animation.selection.text;
+                filters.animation = animation.selection.fxKey || animation.selection.text;
                 filters.compName = cn.text;
-                filters.type = type.selection.text;
+                filters.type = type.selection.fxKey || type.selection.text;
                 filters.label = null;
                 if (label.selection.index) {
                     filters.label = label.selection.index - 1;
@@ -9285,7 +10165,7 @@ FX.UI = (function () {
             FX.U.assert(
                 scanner.inventory() &&
                     scanner.inventory().analysisState === 'analyzed',
-                'Run Configuration Analysis before comparing configurations.'
+                'Read the parameters (More > Read Parameters) before comparing.'
             );
             var scan = scanner.current(),
                 choices = FX.Grouping.build(
@@ -9298,7 +10178,7 @@ FX.UI = (function () {
                 choices.length >= 2,
                 'At least two configuration groups are needed'
             );
-            var d = new Window('dialog', 'Compare configurations');
+            var d = new Window('dialog', FX.I18N.t('Compare configurations'));
             d.orientation = 'column';
             d.alignChildren = 'fill';
             var a = dropdown(d, []),
@@ -9316,12 +10196,12 @@ FX.UI = (function () {
             }
             a.selection = 0;
             b.selection = 1;
-            var showAll = d.add('checkbox', undefined, 'Show all properties'),
+            var showAll = d.add('checkbox', undefined, FX.I18N.t('Show all properties')),
                 list = d.add('listbox', undefined, [], {
                     multiselect: true,
                     numberOfColumns: 3,
                     showHeaders: true,
-                    columnTitles: ['Property', 'A', 'B'],
+                    columnTitles: FX.I18N.list(['Property', 'A', 'B']),
                     columnWidths: [220, 110, 110]
                 });
             list.preferredSize = [460, 260];
@@ -9402,7 +10282,7 @@ FX.UI = (function () {
         }
         function issuesDialog() {
             FX.U.assert(lastReport, 'No operation results');
-            var d = new Window('dialog', 'Operation results');
+            var d = new Window('dialog', FX.I18N.t('Operation results'));
             d.orientation = 'column';
             d.alignChildren = 'fill';
             var outcomeSummary = d.add('statictext', undefined, FX.Presentation.reportSummary(lastReport), { multiline: true });
@@ -9453,7 +10333,7 @@ FX.UI = (function () {
             showDialog(d);
         }
         function diagnosticDialog() {
-            var d = new Window('dialog', 'FX Exchanger diagnostics');
+            var d = new Window('dialog', FX.I18N.t('FXHX diagnostics'));
             d.orientation = 'column';
             d.alignChildren = 'fill';
             var text = d.add('edittext', undefined, diagnostics.text(), {
@@ -9484,7 +10364,7 @@ FX.UI = (function () {
                 scope.selection = i;
             }
         }
-        groupBy.selection = 7;
+        setGroupIndex(7);
         mainView.selection = 0;
         choose.enabled = scope.selection.index === 1;
         var controller = {
@@ -9528,7 +10408,20 @@ FX.UI = (function () {
             render: render,
             diagnostics: diagnostics,
             applySearch: applySearch,
-            selected: selected
+            selected: selected,
+            activity: activity,
+            // Grouping mode is data (see setGroupIndex); exposed for tests and tooling.
+            groupMode: function () {
+                return groupBy.selection.index;
+            },
+            setGroupMode: function (index) {
+                setGroupIndex(index);
+            },
+            groupChanged: function () {
+                if (groupBy.onChange) {
+                    groupBy.onChange();
+                }
+            }
         };
         w.fxController = controller;
         w.onClose = function () {

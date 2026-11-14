@@ -17,7 +17,7 @@ const body =
     JSON.stringify(dir.replace(/\\/g, '/')) +
     ';FX.BundlePath=' +
     JSON.stringify(
-        path.join(root, 'dist/FX Exchanger.jsx').replace(/\\/g, '/')
+        path.join(root, 'dist/FXHX.jsx').replace(/\\/g, '/')
     ) +
     ';FX.HostTestOptIn=' +
     optedIn +

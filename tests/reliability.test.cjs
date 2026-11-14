@@ -140,7 +140,8 @@ test('editor and confirmation close before Batch; cancelled confirmation recover
     };
     h.click(p, 'Edit Parameters...');
     assert.equal(h.calls.filter((x) => x[0] === 'set').length, 18);
-    assert.equal(p.fxController.scanner.basic.stale, true);
+    // A follow-up update is pending (reread of the edited effects).
+    assert.ok(p.fxController.scanner.job || p.fxController.scanner.basic.stale);
     const calls = h.calls.length;
     // A callback retained by ScriptUI must not operate on the old editor.
     h.click(editor, 'Apply');
@@ -200,7 +201,7 @@ test('preference load and save errors remain inspectable without converting host
         const p = new h.Panel('panel');
         assert.doesNotThrow(() => h.FX.UI.start(p, { adapter: h.adapter }));
         if (action === 'save') {
-            const group = h.all(p, 'dropdownlist')[1];
+            const group = h.grouping(p);
             group.selection = 1;
             group.onChange();
         }
@@ -228,7 +229,7 @@ test('blocked all-selected edit writes nothing and a later reopen retains the dr
         list.onChange();
         const field = h.parameterFields(d)[0];
         field.text = '100'; field.onChanging();
-        assert.equal(h.all(d, 'button').find(b => b.text === 'Apply').enabled, false);
+        assert.equal(h.all(d, 'button').find(b => b.fxTitle === 'Apply').enabled, false);
         h.click(d, 'Cancel');
     };
     h.click(p, 'Edit Parameters...');
@@ -238,7 +239,7 @@ test('blocked all-selected edit writes nothing and a later reopen retains the dr
     h.dialogHooks['Edit Parameters'] = (d) => {
         assert.equal(h.all(d, 'listbox')[1].items.length, 1);
         assert.equal(h.parameterFields(d)[0].text, '100');
-        assert.equal(h.all(d, 'button').find(b => b.text === 'Apply').enabled, false);
+        assert.equal(h.all(d, 'button').find(b => b.fxTitle === 'Apply').enabled, false);
         h.click(d, 'Cancel');
     };
     h.click(p, 'Edit Parameters...');

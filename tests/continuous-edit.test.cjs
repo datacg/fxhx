@@ -159,7 +159,8 @@ test('ambiguous duplicate effects are never rebound or automatically reread', ()
     assert.equal(p.fxController.batch.lastReport.verified, 1);
     assert.equal(layer.parade.property(2).property(1).value, 6);
     assert.equal(h.tasks.size, 0);
-    assert.match(p.fxController.scanner.inventory().analysisState, /basic/);
+    // The edited occurrence keeps no stale configuration; it needs an explicit read.
+    assert.ok(!p.fxController.scanner.inventory().instances.find(e => e.effectIndex === 1).configuration);
 });
 
 test('a continued edit preserves the page and the identifiable focused occurrence', () => {
