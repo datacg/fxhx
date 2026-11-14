@@ -1,94 +1,94 @@
-# Guia de uso — FXHX 0.1.16
+# User guide — FXHX 0.1.16
 
-O painel encontra efeitos no projeto e altera os parâmetros deles em lote, com confirmação e um único Undo. A interface segue o idioma do After Effects; os nomes entre parênteses são os rótulos em inglês.
+FXHX finds effects in your project and changes their parameters in batches, with a confirmation and a single Undo. The interface follows the language of After Effects; this guide uses the English labels.
 
-## 1. Encontrar efeitos
+## 1. Find effects
 
-O topo do painel tem três linhas:
+The top of the panel has three rows:
 
-| Linha | Controles |
+| Row | Controls |
 |---|---|
-| **Escopo (Scope)** | Composição ativa, Escolher composições ou Projeto inteiro. **Filtros...** restringe por tipo de layer, label, estado e animação. |
-| **Buscar (Find)** | Digite um nome de efeito, layer ou composição e pressione **Enter**. A primeira busca lista os efeitos do escopo; as seguintes filtram na hora, sem reler o projeto. |
-| **Ver (View)** | **Efeitos** (um por linha), **Grupos** (efeitos com os mesmos valores juntos) ou **Layers** (inclui layers sem efeitos). **Presets...** e **Atualizar/Listar (Refresh/Scan)** ficam aqui. Durante uma listagem, **Cancelar** ocupa o lugar de Atualizar e a barra de progresso mostra o andamento. |
+| **Scope** | Active Composition, Choose Compositions, or Entire Project. **Filters...** narrows results by layer type, label, state, and animation. |
+| **Find** | Type an effect, layer, or composition name and press **Enter**. The first search lists the effects in the scope; later searches filter that list instantly without reading the project again. |
+| **View** | **Effects** (one per row), **Groups** (effects with the same values together), or **Layers** (includes layers without effects). **Presets...** and **Refresh/Scan** are here too. While a list is being built, **Cancel** takes the place of Refresh and a progress bar shows how far it got. |
 
-Abrir o painel não lê nada. Valores de parâmetros só são lidos quando você pede (Editar parâmetros ou Mais > Ler parâmetros).
+Opening the panel reads nothing. Parameter values are read only when you ask for them (Edit Parameters or More > Read Parameters).
 
-## 2. Selecionar
+## 2. Select
 
-- **Clique** seleciona um resultado. **Ctrl-clique** adiciona ou remove. **Shift-clique** seleciona um intervalo; **Ctrl+Shift** soma o intervalo.
-- `[x]` marca selecionados e `[-]` um grupo parcialmente selecionado.
-- **Selecionar resultados (Select Results)** pega tudo o que a busca encontrou, inclusive em outras páginas (listas longas têm páginas de 200).
-- Duplo clique (ou setas Esquerda/Direita) recolhe e expande grupos.
-- As ações só usam itens selecionados que correspondem à busca e aos filtros atuais. A linha de resumo avisa quando há selecionados ocultos ou em outras páginas.
+- **Click** selects one result. **Ctrl-click** adds or removes. **Shift-click** selects a range; **Ctrl+Shift** adds a range.
+- `[x]` marks selected rows and `[-]` a partially selected group.
+- **Select Results** selects everything the search found, including other pages (long lists have pages of 200).
+- Double-click a group (or use the Left/Right arrow keys) to collapse or expand it.
+- Actions only use selected items that match the current search and filters. The summary line tells you when some selected items are hidden or on other pages.
 
-## 3. Editar parâmetros
+## 3. Edit parameters
 
-Selecione efeitos **do mesmo tipo** e clique em **Editar parâmetros...**. Na primeira vez, o painel lê só os efeitos selecionados e então abre o editor.
+Select effects **of the same type** and click **Edit Parameters...**. The first time, the panel reads only the selected effects and then opens the editor.
 
-**À esquerda:** a lista de parâmetros, com busca por nome ou valor e o filtro Todos / Editáveis / Com keyframes / Alterações pendentes / Indisponíveis. A coluna *Aplica-se a* mostra em quantos efeitos selecionados a alteração pode ser aplicada (ex.: `3/3`).
+**Left:** the parameter list, with search by name or value and the filter All parameters / Editable / Has keyframes / Pending changes / Unavailable. The *Applies to* column shows how many selected effects the change can reach (for example `3/3`).
 
-**À direita (Parâmetro selecionado):**
+**Right (Selected parameter):**
 
-- valor atual; quando os efeitos têm valores diferentes, aparece *Mixed Values* e a lista *Previous values* com contagens, por exemplo `200 (1); 100 (1)`;
-- **Novo valor**: deixe em branco para manter o valor de cada efeito. A vírgula decimal é aceita (`12,5`). Textos inválidos ficam marcados com `!` e uma mensagem;
-- vetores mostram campos **X/Y/Z**; cores mostram **R/G/B/A de 0 a 1**, um campo **hex** (`#FF8000`) e **Escolher...** para o seletor de cores do sistema;
-- menus mostram as opções pelo nome, com *Manter valores originais* no topo;
-- parâmetros liga/desliga mostram uma **caixa de seleção** com o estado atual ("Sem alteração (agora Desligado)"). Clique para definir em todos os efeitos selecionados; **Número...** troca para o campo numérico e **Caixa de seleção** volta, caso um slider que esteja em 0 ou 1 seja confundido com caixa de seleção;
-- **Ver alvos (View targets)** mostra cada composição/layer/efeito, o valor atual e por que um alvo está bloqueado.
+- the current value; when the effects have different values you see *Mixed Values* and a *Previous values* list with counts, for example `200 (1); 100 (1)`;
+- **New value**: leave it blank to keep each effect's own value. Decimal commas are accepted (`12,5`). Invalid text is marked with `!` and a message;
+- vectors show **X/Y/Z** fields; colors show **R/G/B/A from 0 to 1**, a **hex** field (`#FF8000`), and **Pick...** for the system color picker;
+- dropdowns show their options by name, with *Keep original values* at the top;
+- on/off parameters show a **checkbox** with the current state ("Unchanged (now Off)"). Click it to set every selected effect. **Number...** switches to a numeric field and **Checkbox** switches back, in case a slider that happens to sit at 0 or 1 is mistaken for a checkbox;
+- **View targets** lists each composition/layer/effect, its current value, and why a target is blocked.
 
-**Embaixo:** todas as alterações pendentes, mesmo as escondidas pela busca. Clique numa para voltar a ela. `*` marca pendência e `!` um valor a corrigir. **Limpar esta alteração** e **Limpar todas** só descartam o que ainda não foi aplicado.
+**Bottom:** every pending change, including those hidden by the search. Click one to jump back to it. `*` marks a pending change and `!` a value to fix. **Clear this change** and **Clear all changes** only discard what has not been applied yet.
 
-**Aplicar N alterações** envia tudo num só lote. A confirmação mostra uma tabela *Parâmetro / Atual (efeitos) / Novo valor* e o botão **Aplicar a N efeitos**. **Enter na confirmação cancela**: aplicar sempre exige um clique. Depois de aplicar, a lista é mantida e só os efeitos editados são lidos de novo (Remover efeitos e Adicionar efeito relistam o escopo); clique em Editar parâmetros para continuar.
+**Apply N changes** sends everything as one batch. The confirmation shows a *Parameter / Current (effects) / New value* table and an **Apply to N effects** button. **Enter in the confirmation cancels**, so applying always takes a click. After applying, the list is kept and only the edited effects are read again (Remove Effects and Add Effect rebuild the list); click Edit Parameters to continue.
 
-Cada alteração pendente precisa valer para **todos** os efeitos selecionados. Se um alvo tiver expression, layer travada, keyframes não autorizados ou parâmetro ausente, Aplicar fica bloqueado e Ver alvos explica o motivo. Ajuste a seleção ou limpe a alteração.
+Each pending change must reach **every** selected effect. If a target has an expression, a locked layer, keyframes you have not authorized, or a missing parameter, Apply is blocked and View targets explains why. Adjust the selection or clear that change.
 
-**Exemplo:** buscar `lumetri`, Selecionar resultados, Editar parâmetros, escolher *Vibrance*, digitar `20`, Aplicar 1 alteração, Aplicar a N efeitos. Só Vibrance muda; exposição, saturação e os demais valores de cada efeito ficam como estavam.
+**Example:** search `lumetri`, Select Results, Edit Parameters, choose *Vibrance*, type `20`, Apply 1 change, Apply to N effects. Only Vibrance changes; exposure, saturation, and every other value of each effect stay as they were.
 
 ## 4. Keyframes
 
-Keyframes são preservados por padrão. Para trocar um parâmetro animado por um valor fixo, marque **Remover keyframes (todos os efeitos selecionados)** nesse parâmetro:
+Keyframes are preserved by default. To replace an animated parameter with a fixed value, check **Remove keyframes (all selected effects)** on that parameter:
 
-- com um novo valor, todos os efeitos recebem esse valor fixo;
-- com o campo em branco, cada efeito mantém o seu valor atual, agora sem keys.
+- with a new value, every effect receives that fixed value;
+- with the field blank, each effect keeps its current value, now without keys.
 
-A confirmação pede um segundo consentimento com a contagem de keys. Os outros parâmetros mantêm a animação. **Mais > Inspecionar animação...** mostra tempos, valores e curvas, apenas para leitura.
+The confirmation asks for a second consent that shows the key count. Other parameters keep their animation. **More > Inspect Animation...** shows times, values, and curves, read-only.
 
-## 5. Copiar e presets
+## 5. Copy and presets
 
-- **Mais > Copiar parâmetros...** guarda valores estáticos escolhidos; selecione efeitos do mesmo tipo e use **Colar parâmetros...**.
-- **Copiar de outro efeito...** aplica os valores de um efeito de referência.
-- **Salvar preset de efeito...** guarda valores escolhidos de um efeito. Em **Presets...** você edita vários valores de uma vez (com os mesmos campos do editor), renomeia, exclui, importa e exporta. Editar um preset não altera o projeto.
-- **Adicionar efeito... > Presets salvos** cria um efeito **novo** com esses valores; os existentes não são substituídos.
+- **More > Copy Parameters...** stores chosen static values; select effects of the same type and use **Paste Parameters...**.
+- **Copy From Another Effect...** applies the values of a reference effect.
+- **Save Effect Preset...** stores chosen values of one effect. In **Presets...** you can edit several values at once (with the same fields as the editor), rename, delete, import, and export. Editing a preset does not change the project.
+- **Add Effect... > Saved presets** creates a **new** effect with those values; existing effects are not replaced.
 
-Presets nunca contêm keyframes, expressions nem dados internos. O arquivo é `%APPDATA%\FXExchanger\presets.json`, com backups automáticos.
+Presets never contain keyframes, expressions, or internal data. The file is `%APPDATA%\FXExchanger\presets.json`, with automatic backups.
 
-## 6. Outras ações
+## 6. Other actions
 
-No painel: **Ativar/Desativar** (o Enabled do efeito), **Adicionar efeito...** (selecione uma layer; use Ver > Layers para layers sem efeitos) e **Localizar** (seleciona a layer na Timeline).
+On the panel: **Enable/Disable** (the effect's Enabled switch), **Add Effect...** (select a layer; use View > Layers for layers without effects), and **Locate** (selects the layer in the Timeline).
 
-Em **Mais...**: Ler parâmetros, Copiar/Colar parâmetros, Comparar..., Inspecionar animação..., Remover efeitos, Seleção..., Agrupamento..., Detalhes... e Diagnóstico....
+Under **More...**: Read Parameters, Copy/Paste Parameters, Compare..., Inspect Animation..., Remove Effects, Selection..., Grouping..., Details..., and Diagnostics....
 
-## 7. Resultados e segurança
+## 7. Results and safety
 
-Cada operação é **um** passo de Undo (Ctrl+Z). Antes de escrever, todos os alvos são conferidos de novo; depois, cada valor é lido de volta. **Resultados...** mostra o que aconteceu com cada alvo:
+Every operation is **one** Undo step (Ctrl+Z). Before writing, every target is checked again; afterward, each value is read back. **Results...** shows what happened to each target:
 
-| Resultado | Significado |
+| Result | Meaning |
 |---|---|
-| Written and Verified | Gravado e conferido. Se o AE guardou o número com a própria precisão (comum em cores), isso é aceito e anotado. |
-| Written but Verification Failed | Gravado, mas o valor lido é outro (arredondado ou limitado pelo efeito). |
-| Skipped | Nada foi tentado nesse parâmetro (por exemplo, animado sem autorização). |
-| Failed Before Write | Falhou antes de gravar; nada mudou. |
-| Unknown After Host Error | O AE deu erro durante a gravação; o valor pode ter mudado. |
+| Written and Verified | Written and confirmed. If After Effects stored the number at its own precision (common with colors), that is accepted and noted. |
+| Written but Verification Failed | Written, but the value read back is different (rounded or clamped by the effect). |
+| Skipped | Nothing was attempted on that parameter (for example, animated without authorization). |
+| Failed Before Write | Failed before writing; nothing changed. |
+| Unknown After Host Error | After Effects reported an error during the write; the value may have changed. |
 
-Escritas incertas nunca são repetidas automaticamente: confira no Effect Controls, use Ctrl+Z se precisar e clique em Atualizar antes de tentar de novo.
+Uncertain writes are never retried automatically: check Effect Controls, press Ctrl+Z if needed, and click Refresh before trying again.
 
-**Campos protegidos:** Compositing Options do AE, Effect Opacity, GPU Rendering, Connection Timestamp e outros campos internos não aparecem no editor e não são gravados. No AI Color Match, só *Intensity* é editável. Controles gráficos opacos (algumas curvas) ficam bloqueados; edite-os no próprio efeito. O ExtendScript não informa de forma universal quais campos um plugin exibe, então alguns plugins de terceiros podem precisar de regras próprias.
+**Protected fields:** After Effects Compositing Options, Effect Opacity, GPU Rendering, Connection Timestamp, and other internal fields do not appear in the editor and are never written. In AI Color Match, only *Intensity* is editable. Opaque graphical controls (some curves) are blocked; edit them in the effect itself. ExtendScript does not report universally which fields a plugin displays, so some third-party plugins may need specific rules.
 
-## 8. Problemas
+## 8. Troubleshooting
 
-- O AE pode parar de responder durante operações longas; a barra de progresso mostra até onde foi. Cancelar não interrompe uma chamada do AE já em andamento.
-- **Ajuda > Verificar atualizações** precisa da preferência *Allow Scripts to Write Files and Access Network* e pode pausar o AE por alguns segundos. **Abrir Releases** sempre funciona.
-- **Ajuda > Diagnóstico...** gera um log técnico para relatar problemas, sem valores do projeto nem dados de licença.
+- After Effects may stop responding during long operations; the progress bar shows how far it got. Cancel cannot interrupt a host call that is already running.
+- **Help > Check for updates** needs the *Allow Scripts to Write Files and Access Network* preference and may pause After Effects for a few seconds. **Open Releases** always works.
+- **Help > Diagnostics...** creates a technical log for bug reports, without project values or license data.
 
-Instalação e problemas comuns: [INSTALL.md](INSTALL.md).
+Installation and common problems: [INSTALL.md](INSTALL.md).

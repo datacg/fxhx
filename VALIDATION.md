@@ -1,13 +1,13 @@
-# Validação — FXHX 0.1.16
+# Validation — FXHX 0.1.16
 
-**282 testes automatizados aprovados**, com fixtures em memória, build ES3 e verificação de identidade entre fontes e JSX. O ZIP é extraído com Windows tar e conferido por whitelist, SHA-256 e identidade do JSX.
+**282 automated tests pass**, using in-memory fixtures, an ES3 build, and an identity check between the sources and the JSX. The ZIP is extracted with Windows tar and checked against an allowlist, SHA-256 hashes, and JSX identity.
 
-Os testes cobrem seleção, escopos, valores mistos, edição de toda a seleção, remoção de keys, limites, menus, presets, proteção de expressions e dados opacos, falhas do host, readback, recuperação e ausência de consultas de rede na inicialização. Na 0.1.16 entram também: vírgula decimal, tolerância de precisão no readback, entrada de cores e caixas de seleção, refresh sem relistar o projeto, interface em português e o gate de release.
+The tests cover selection, scopes, mixed values, editing the whole selection, keyframe removal, limits, menus, presets, protection of expressions and opaque data, host failures, readback, recovery, and the absence of network queries at startup. Version 0.1.16 adds decimal commas, precision tolerance on readback, color and checkbox entry, refresh without relisting the project, the Portuguese interface, and the release gate.
 
-## Validação no After Effects
+## Validation in After Effects
 
-O release definitivo exige o registro `docs/validation/ae-host-<versão>.json` com todos os itens do [checklist no host](docs/HOST_SMOKE_CHECKLIST.md) aprovados. Os pontos mais sensíveis são layout em 100/150/200% de DPI, seletor de cor, detecção de caixas de seleção em plugins de terceiros, tempo de Apply em projetos grandes e a interface em português.
+A final release requires a `docs/validation/ae-host-<version>.json` record with every item of the [host checklist](docs/HOST_SMOKE_CHECKLIST.md) passing. **0.1.16 was published before that record existed**, so native validation is still pending. The most sensitive points are layout at 100/150/200% display scaling, the color picker, checkbox detection in third-party plugins, Apply time in large projects, and the Portuguese interface.
 
-Os testes automatizados não iniciam o After Effects, não criam projetos reais e não consultam licenças de terceiros.
+The automated tests do not launch After Effects, create real projects, or query third-party licenses.
 
-O painel faz pré-validação antes de escrever e usa um grupo Undo por operação. APIs síncronas podem falhar depois dessa validação e deixar mudanças parciais. Results diferencia falhas anteriores à escrita, escritas confirmadas e resultados incertos; não há retry nem rollback automático.
+The panel validates targets before writing and uses one Undo group per operation. Synchronous host APIs can still fail after that validation and leave partial changes. Results distinguishes failures before writing, confirmed writes, and uncertain outcomes; there is no automatic retry or rollback.

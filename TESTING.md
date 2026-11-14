@@ -1,20 +1,20 @@
-# Testes
+# Testing
 
-No Windows, com Node.js 18 ou superior:
+On Windows, with Node.js 18 or later:
 
 ```powershell
 npm.cmd ci
 npm.cmd run check
-npm.cmd run release:candidate   # pacote de teste, marcado como não validado no AE
-npm.cmd run release             # exige docs/validation/ae-host-<versão>.json
+npm.cmd run release:candidate   # test package, marked as not validated in After Effects
+npm.cmd run release             # requires docs/validation/ae-host-<version>.json
 ```
 
-`check` gera `dist/FXHX.jsx` e executa 282 testes Node/mocks. `release` também gera e verifica o ZIP com Windows tar, whitelist, SHA-256 e comparação do JSX, e só roda quando existe o registro do [checklist no host](docs/HOST_SMOKE_CHECKLIST.md). Os testes não iniciam o After Effects.
+`check` builds `dist/FXHX.jsx` and runs 282 Node tests with After Effects mocks. `release` also builds and verifies the ZIP with Windows tar, an allowlist, SHA-256 hashes, and a JSX comparison, and runs only when the [host checklist](docs/HOST_SMOKE_CHECKLIST.md) record exists. The tests do not launch After Effects.
 
-As fixtures usam objetos em memória para representar composições, layers, efeitos e controles ScriptUI. A cobertura inclui seleção nativa simulada, escopos, agrupamento, valores mistos, edição de toda a seleção, menus, keyframes, presets, falhas de escrita/readback, recuperação, cache, persistência e consulta de atualizações.
+The fixtures use in-memory objects to represent compositions, layers, effects, and ScriptUI controls. Coverage includes simulated native selection, scopes, grouping, mixed values, editing the whole selection, menus, checkboxes, colors, keyframes, presets, write and readback failures, recovery, caching, persistence, the Portuguese interface, and update checks. The fixtures use small scan slices (`FX.Scanner.SLICE_STEPS = 30`) so that multi-tick paths stay covered; production uses 150.
 
-`tests/updates.test.cjs` simula o transporte de rede, valida versões e URLs e verifica que a consulta só ocorre ao clicar. Não faz chamadas reais ao GitHub na suíte.
+`tests/updates.test.cjs` simulates the network transport, validates versions and URLs, and verifies that the check only runs on click. The suite never calls GitHub.
 
-`npm.cmd run host:prepare` apenas prepara uma fixture bloqueada por padrão em `artifacts/`. Não inicia o host e não autoriza testes sobre projetos reais.
+`npm.cmd run host:prepare` only prepares a fixture, locked by default, in `artifacts/`. It does not launch the host and does not authorize tests on real projects.
 
-O [checklist no host](docs/HOST_SMOKE_CHECKLIST.md) é obrigatório para cada release; [docs/UI_QA.md](docs/UI_QA.md) traz verificações detalhadas por versão. Mocks não certificam comportamento visual, cliques, docking ou desempenho dentro do host.
+The [host checklist](docs/HOST_SMOKE_CHECKLIST.md) is required for every release; [docs/UI_QA.md](docs/UI_QA.md) keeps detailed per-version checks (in Portuguese). Mocks do not certify visual behavior, clicks, docking, or performance inside the host.

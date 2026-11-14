@@ -22,7 +22,6 @@ const files = [
         'USER_GUIDE.md',
         'CHANGELOG.md',
         'VALIDATION.md',
-        'docs/UI_QA.md',
         'docs/HOST_SMOKE_CHECKLIST.md',
         'docs/CHANGES_0.1.16.md'
     ].map((x) => [x, x])

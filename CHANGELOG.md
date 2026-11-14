@@ -1,24 +1,24 @@
 # Changelog
 
-## 0.1.16 — FXHX, edição mais rápida e editor redesenhado
+## 0.1.16 — FXHX, faster edits, and a redesigned editor
 
-- **Nome FXHX:** o arquivo passa a ser `FXHX.jsx`. Apague o `FX Exchanger.jsx` antigo; preferências e presets são mantidos.
-- **Aplicar ficou mais rápido:** edições, Enable e Disable mantêm a lista de efeitos e releem só os efeitos alterados, sem relistar o projeto. Cada efeito é lido uma vez a menos antes de gravar.
-- **Editor em dois painéis** (lista + parâmetro selecionado), com Apply mostrando a contagem de alterações.
-- **Entrada de valores:** vírgula decimal, campos X/Y/Z e R/G/B/A, cor por hex ou seletor do sistema, caixa de seleção para parâmetros liga/desliga (com Number.../Checkbox para alternar).
-- **Confirmação** com tabela atual → novo; Enter cancela, aplicar exige clique.
-- **Painel mais compacto:** três linhas no topo, Refresh/Cancel no mesmo lugar, barra de progresso, ações sem duplicatas e mensagens mais claras.
-- **Interface em português** quando o After Effects está em português (`FXHX_LANG` força o idioma).
-- Presets editam vários parâmetros de uma vez; Check for updates avisa quando o AE bloqueia a rede.
-- 282 testes automatizados. Validação no After Effects pelo [checklist](docs/HOST_SMOKE_CHECKLIST.md). [Detalhes](docs/CHANGES_0.1.16.md).
+- **New name, FXHX:** the panel file is now `FXHX.jsx`. Delete the old `FX Exchanger.jsx`; preferences and presets are kept.
+- **Faster Apply:** edits, Enable, and Disable keep the effect list and reread only the changed effects instead of relisting the whole project. Each effect is captured once less before writing.
+- **Two-pane editor** (parameter list + selected parameter), with the pending-change count on the Apply button.
+- **Value entry:** decimal commas, X/Y/Z and R/G/B/A fields, colors by hex or the system color picker, and a checkbox for on/off parameters (Number... and Checkbox switch between the two).
+- **Confirmation** shows a current → new table; Enter cancels, so applying always takes a click.
+- **Compact panel:** three rows at the top, Refresh and Cancel in the same spot, a progress bar, no duplicate actions, and clearer messages.
+- **Portuguese interface** when After Effects runs in Portuguese (`FXHX_LANG` forces a language).
+- Presets can edit several parameters at once; Check for updates explains when After Effects blocks network access.
+- 282 automated tests. After Effects validation follows the [host checklist](docs/HOST_SMOKE_CHECKLIST.md). [Details](docs/CHANGES_0.1.16.md).
 
-## 0.1.15 — primeira versão pública (como FX Exchanger)
+## 0.1.15 — first public release (as FX Exchanger)
 
-- Busca de efeitos por escopo, seleção por ocorrência/layer/grupo e comparação de configurações legíveis.
-- Edição de vários parâmetros em um único lote, com busca, filtros, pendências e revisão antes de aplicar.
-- Mixed Values inclui valores atuais de propriedades com keyframes. Valores anteriores agrupados por contagem e detalhados por alvo.
-- Cada pendência deve atender todos os efeitos selecionados. Proteções, tipos, menus, limites e autorização de keys são conferidos antes da primeira escrita.
-- Remoção explícita de keyframes por parâmetro, incluindo uma única key. Campo vazio preserva o valor atual de cada alvo.
-- Cópia de parâmetros estáticos escolhidos e presets de um efeito. Expressions, dados opacos e campos internos conhecidos ficam protegidos.
-- Help → Check for updates consulta a última Release estável de datacg/fxhx. Open Releases abre o download para instalação manual.
-- 253 testes automatizados aprovados, build ES3 e pacote verificado. Validação nativa pendente.
+- Effect search by scope, selection by instance, layer, or group, and comparison of readable settings.
+- Editing of several parameters in a single batch, with search, filters, pending changes, and review before applying.
+- Mixed Values includes the current values of keyframed properties. Previous values are grouped by count and detailed per target.
+- Every pending change must cover all selected effects. Protections, types, menus, limits, and keyframe authorization are checked before the first write.
+- Explicit keyframe removal per parameter, including a single key. A blank field keeps each target's current value.
+- Copying of chosen static parameters and single-effect presets. Expressions, opaque data, and known internal fields stay protected.
+- Help → Check for updates queries the latest stable release of datacg/fxhx. Open Releases opens the download for manual installation.
+- 253 automated tests, ES3 build, and verified package. Native validation pending.
